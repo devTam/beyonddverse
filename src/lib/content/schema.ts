@@ -11,7 +11,7 @@ export const GeneratedPackageSchema = z.object({
         narration: z.string().min(1),
         visualType: z.enum(["scripture", "illustration", "typography", "map", "timeline"]),
         visualPrompt: z.string().min(1),
-        scriptureRef: z.string().optional(),
+        scriptureRef: z.string().nullable(),
         durationMs: z.number().int().positive(),
       }),
     ).min(3),

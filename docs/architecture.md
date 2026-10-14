@@ -1,37 +1,43 @@
-# Architecture
+# Architecture and implementation status
 
-Beyond the Verse is a Next.js application backed by PostgreSQL and Prisma. The MVP is intentionally a modular monolith: UI, server actions, validation, and orchestration contracts live in one deployable web application, while expensive Remotion/FFmpeg work belongs on a separate worker.
+Beyond the Verse is currently a Next.js modular monolith backed by PostgreSQL/Prisma. Trigger.dev runs durable orchestration outside request handlers. Media lives in authenticated Cloudinary assets. Remotion/FFmpeg rendering will run on a dedicated worker, never in Vercel Functions.
 
-## Implemented vertical slice
+## Implemented and verified
 
-- 66-book Protestant canon and all 1,189 chapter records, with public-domain WEB text for Genesis 1
-- immutable creator explanation revisions
-- structured, Zod-validated content generation behind a provider interface
-- Scripture citation report linked to the stored source text
-- long-form and three short-form script records
-- explicit human approval gate before media production
-- idempotent workflow records and visible step history
-- dashboard, Bible library, chapter studio, publication, analytics, and settings surfaces
-- normalized Prisma models for assets, narration, renders, variants, publishing, analytics, costs, approvals, and audits
+- Better Auth administrator login, database sessions, route proxy, server-side mutation authorization, and administrator email allowlist
+- 66-book Protestant canon and all 1,189 chapter records; public-domain WEB text for Genesis 1
+- immutable written explanations plus browser recording/audio upload with authenticated direct Cloudinary upload
+- durable Trigger.dev audio transcription that retains the original asset and creates an immutable transcript revision
+- durable Trigger.dev Scripture preparation, structured content generation, reference validation, and persistence pipeline
+- Vercel AI Gateway structured generation with Zod validation; deterministic provider only when explicitly selected for development
+- long-form and three short-form script persistence, scene records, source traceability, and human script approval gate
+- workflow/run/step state persisted in PostgreSQL and live progress polling in the studio
+- Cloudinary signed uploads, response verification, authenticated delivery URLs, deletion, and media metadata
+- production web build, Trigger.dev bundle dry-run, strict type check, lint, unit tests, and auth HTTP behavior
 
-## Configuration blockers
+## Not implemented yet
 
-The development provider is deterministic and clearly identified as such. These adapters require external credentials or approval before becoming operational:
+- full editable script/scene editor, revision comparison, rejection/reopen, and section regeneration
+- production TTS, pronunciation, word timings, normalization, caching, and narration UI
+- image generation and asset approval library
+- Remotion compositions, FFmpeg utilities, dedicated render worker, previews, long video, and three vertical renders
+- platform variants, OAuth, publisher adapters, manual-publish packages, and reconciliation
+- functional calendar scheduling, analytics ingestion/reporting, provider settings, budget enforcement, and Sentry
+- complete public-domain Bible verse import beyond Genesis 1
+- end-to-end MVP acceptance test through an authorized social test account
 
-- LLM, TTS, transcription, and image generation providers
-- Cloudinary media storage, transformation, and signed delivery
-- Trigger.dev durable jobs
-- dedicated Remotion/FFmpeg rendering worker
-- YouTube, Meta, TikTok, and X OAuth/publishing APIs
-- analytics ingestion and Sentry
+## Operational blockers requiring account access
 
-No integration is reported as live until its credentials and official platform approval exist.
+- Railway Postgres needs a public TCP/database URL before Vercel can connect. Creating that public endpoint requires explicit owner approval.
+- The local Vercel CLI credential is inaccessible, so the repository still needs linking and Vercel environment configuration from an authenticated session.
+- AI narration/image models and social OAuth applications/test accounts must be supplied before those paths can be proven.
 
 ## Invariants
 
-- Scripture quotations come from the database, not model memory.
+- Scripture quotations originate in stored translation text, not model memory.
 - Every generated package points to an immutable explanation revision.
-- Every publish request uses a unique idempotency key.
-- Platform failures are represented independently.
-- Media binaries live in authenticated Cloudinary assets; PostgreSQL stores public IDs, dimensions, checksums, and provider metadata only.
-- Scheduled timestamps are stored in UTC and accounts retain their display time zone.
+- Expensive media generation cannot begin without script approval.
+- Upload and workflow APIs perform real session checks; proxy cookie presence is not treated as authorization.
+- Every publish request has a unique idempotency key and platform failures remain independent.
+- Media binaries are not stored in PostgreSQL; records contain checksums, dimensions, provider IDs, and provenance.
+- Scheduled instants are UTC and accounts retain their display time zone.

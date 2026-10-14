@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { generateText, Output } from "ai";
 import { GeneratedPackageSchema, type GeneratedPackage } from "./schema";
 
 export interface ContentProvider {
@@ -54,9 +55,42 @@ export class DevelopmentContentProvider implements ContentProvider {
   }
 }
 
+export class AiGatewayContentProvider implements ContentProvider {
+  async generate(input: { reference: string; scripture: string; explanation: string }) {
+    const model = process.env.AI_GATEWAY_MODEL;
+    if (!model) throw new Error("AI_GATEWAY_MODEL is required when CONTENT_PROVIDER=ai-gateway.");
+
+    const result = await generateText({
+      model,
+      temperature: 0,
+      output: Output.object({ schema: GeneratedPackageSchema }),
+      system: [
+        "You are an expert Bible education editor working under strict source controls.",
+        "The creator explanation is the primary interpretation. Preserve its meaning and voice.",
+        "Never invent a quotation, verse, historical assertion, or theological certainty.",
+        "Clearly distinguish Scripture, creator interpretation, historical context, and uncertain commentary.",
+        "Every short must be independently useful. Long-form narration should target 8–12 minutes.",
+        "Return only content supported by the supplied Scripture and creator explanation.",
+      ].join(" "),
+      prompt: `REFERENCE\n${input.reference}\n\nSCRIPTURE (authoritative source)\n${input.scripture}\n\nCREATOR EXPLANATION (primary interpretation)\n${input.explanation}`,
+      experimental_telemetry: {
+        isEnabled: true,
+        functionId: "chapter-content-package",
+        recordInputs: false,
+        recordOutputs: false,
+      },
+    });
+    return GeneratedPackageSchema.parse(result.output);
+  }
+}
+
 export function getContentProvider(): ContentProvider {
-  if (!process.env.CONTENT_PROVIDER || process.env.CONTENT_PROVIDER === "development") {
+  if (process.env.CONTENT_PROVIDER === "development") {
     return new DevelopmentContentProvider();
+  }
+  if (process.env.CONTENT_PROVIDER === "ai-gateway") return new AiGatewayContentProvider();
+  if (!process.env.CONTENT_PROVIDER) {
+    throw new Error("CONTENT_PROVIDER is required. Use ai-gateway in deployed environments or development locally.");
   }
   throw new Error(`Content provider “${process.env.CONTENT_PROVIDER}” is not configured.`);
 }

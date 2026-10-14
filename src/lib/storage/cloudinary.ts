@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { v2 as cloudinary, type UploadApiOptions, type UploadApiResponse } from "cloudinary";
 import { z } from "zod";
 import type { AssetKind, Prisma } from "@prisma/client";
@@ -39,6 +39,8 @@ export type UploadMediaInput = {
   filename: string;
   projectId?: string;
 };
+
+export type SignedUploadInput = Pick<UploadMediaInput, "kind" | "mimeType" | "filename" | "projectId">;
 
 let configured = false;
 
@@ -97,6 +99,34 @@ export async function uploadMedia(input: UploadMediaInput): Promise<StoredMedia>
     context: { kind: input.kind, original_filename: input.filename },
   });
   return toStoredMedia(result);
+}
+
+export function createSignedUploadParameters(input: SignedUploadInput) {
+  configureCloudinary();
+  const env = CloudinaryEnvironment.parse(process.env);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = [env.CLOUDINARY_FOLDER, input.projectId, input.kind.toLowerCase()].filter(Boolean).join("/");
+  const publicId = `${cloudinarySafeStem(input.filename)}-${randomUUID()}`;
+  const params = { folder, public_id: publicId, timestamp, type: "authenticated" as const };
+  return {
+    ...params,
+    signature: cloudinary.utils.api_sign_request(params, env.CLOUDINARY_API_SECRET),
+    cloudName: env.CLOUDINARY_CLOUD_NAME,
+    apiKey: env.CLOUDINARY_API_KEY,
+    resourceType: cloudinaryResourceTypeFor(input.mimeType),
+  };
+}
+
+export function verifyUploadResponse(input: { publicId: string; version: number; signature: string }) {
+  configureCloudinary();
+  const env = CloudinaryEnvironment.parse(process.env);
+  const expected = cloudinary.utils.api_sign_request(
+    { public_id: input.publicId, version: input.version },
+    env.CLOUDINARY_API_SECRET,
+  );
+  const suppliedBuffer = Buffer.from(input.signature, "utf8");
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  return suppliedBuffer.length === expectedBuffer.length && timingSafeEqual(suppliedBuffer, expectedBuffer);
 }
 
 export async function uploadAndCreateAsset(input: UploadMediaInput) {

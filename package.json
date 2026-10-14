@@ -10,11 +10,17 @@
     "test": "vitest run",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "trigger:dev": "trigger.dev dev",
+    "trigger:deploy": "trigger.dev deploy"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@prisma/client": "^6.12.0",
+    "@trigger.dev/react-hooks": "^4.7.4",
+    "@trigger.dev/sdk": "^4.7.4",
+    "ai": "^7.0.140",
+    "better-auth": "^1.7.8",
     "cloudinary": "^2.11.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
@@ -38,5 +44,8 @@
     "tsx": "^4.20.6",
     "typescript": "^5.7.2",
     "vitest": "^5.0.4"
+  },
+  "overrides": {
+    "ws": "^8.20.3"
   }
 }
