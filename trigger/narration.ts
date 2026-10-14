@@ -1,0 +1,71 @@
+import { metadata, queue, schemaTask } from "@trigger.dev/sdk";
+import { z } from "zod";
+import { contentHash } from "../src/lib/content/provider";
+import { getSpeechProvider } from "../src/lib/audio/tts";
+import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
+import { prisma } from "../src/lib/prisma";
+
+const narrationQueue = queue({ name: "narration-generation", concurrencyLimit: 3 });
+const SceneInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), sceneId: z.string().uuid(), position: z.number().int().positive() });
+const PipelineInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), scriptId: z.string().uuid() });
+
+export const generateSceneNarration = schemaTask({
+  id: "generate-scene-narration",
+  schema: SceneInput,
+  queue: narrationQueue,
+  retry: { maxAttempts: 4, factor: 2, minTimeoutInMs: 2_000, maxTimeoutInMs: 60_000, randomize: true },
+  maxDuration: 600,
+  run: async (payload) => {
+    const stepKey = { runId_position: { runId: payload.workflowRunId, position: payload.position } };
+    await prisma.workflowStep.update({ where: stepKey, data: { status: "RUNNING", attempts: { increment: 1 }, startedAt: new Date(), error: null } });
+    try {
+      const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: payload.sceneId }, include: { script: true } });
+      if (scene.script.status !== "APPROVED") throw new Error("Narration requires an approved script.");
+      const voice = process.env.TTS_VOICE;
+      const model = process.env.AI_SPEECH_MODEL;
+      if (!voice || !model) throw new Error("AI_SPEECH_MODEL and TTS_VOICE are required.");
+      const inputHash = contentHash(JSON.stringify({ narration: scene.narration, voice, model, speed: process.env.TTS_SPEED ?? "1", dictionary: process.env.PRONUNCIATION_DICTIONARY ?? "{}" }));
+      const cached = await prisma.narration.findFirst({ where: { inputHash }, include: { asset: true } });
+      const narration = cached
+        ? await prisma.narration.create({ data: { sceneId: scene.id, assetId: cached.assetId, provider: cached.provider, voiceId: cached.voiceId, inputHash, timings: cached.timings ?? undefined } })
+        : await (async () => {
+            const speech = await getSpeechProvider().synthesize(scene.narration);
+            const asset = await uploadAndCreateAsset({ body: speech.audio, kind: "NARRATION", mimeType: speech.mimeType, filename: `scene-${scene.position}.${speech.format}`, projectId: payload.projectId });
+            return prisma.narration.create({ data: { sceneId: scene.id, assetId: asset.id, provider: speech.provider, voiceId: speech.voiceId, inputHash } });
+          })();
+      await prisma.workflowStep.update({ where: stepKey, data: { status: "SUCCEEDED", completedAt: new Date() } });
+      return { narrationId: narration.id, assetId: narration.assetId, cached: Boolean(cached) };
+    } catch (error) {
+      await prisma.workflowStep.update({ where: stepKey, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unknown narration failure" } });
+      throw error;
+    }
+  },
+});
+
+export const narrationPipeline = schemaTask({
+  id: "generate-script-narration",
+  schema: PipelineInput,
+  maxDuration: 1_800,
+  run: async (payload, { ctx }) => {
+    const script = await prisma.script.findUniqueOrThrow({ where: { id: payload.scriptId }, include: { scenes: { orderBy: { position: "asc" } } } });
+    if (script.status !== "APPROVED") throw new Error("Narration requires an approved script.");
+    await prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "RUNNING", startedAt: new Date() } });
+    metadata.set("projectId", payload.projectId).set("scriptId", payload.scriptId);
+    try {
+      const results = [];
+      for (const [index, scene] of script.scenes.entries()) {
+        metadata.set("scene", index + 1);
+        const configHash = contentHash(JSON.stringify({ narration: scene.narration, model: process.env.AI_SPEECH_MODEL, voice: process.env.TTS_VOICE, speed: process.env.TTS_SPEED ?? "1", dictionary: process.env.PRONUNCIATION_DICTIONARY ?? "{}" }));
+        results.push(await generateSceneNarration.triggerAndWait({ ...payload, sceneId: scene.id, position: index + 1 }, { idempotencyKey: `narration:${scene.id}:${configHash}` }).unwrap());
+      }
+      await prisma.$transaction([
+        prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "SUCCEEDED", completedAt: new Date(), output: { triggerRunId: ctx.run.id, scriptId: script.id, scenes: results } } }),
+        prisma.chapterProject.update({ where: { id: payload.projectId }, data: { currentStage: 5 } }),
+      ]);
+      return { scriptId: script.id, scenes: results };
+    } catch (error) {
+      await prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unknown narration pipeline failure" } });
+      throw error;
+    }
+  },
+});

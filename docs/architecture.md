@@ -13,13 +13,16 @@ Beyond the Verse is currently a Next.js modular monolith backed by PostgreSQL/Pr
 - long-form and three short-form script persistence, scene records, source traceability, and human script approval gate
 - workflow/run/step state persisted in PostgreSQL and live progress polling in the studio
 - Cloudinary signed uploads, response verification, authenticated delivery URLs, deletion, and media metadata
+- editable scripts/scenes, immutable linked revisions, history navigation, reject/reopen actions, and latest-revision-only approval
+- approval-gated scene narration with configurable voice/speed/pronunciation, per-scene retries, and cross-revision cache reuse
+- approval-gated scene visual generation with per-scene retries, prompt/model cache reuse, and asset provenance metadata
 - production web build, Trigger.dev bundle dry-run, strict type check, lint, unit tests, and auth HTTP behavior
 
 ## Not implemented yet
 
-- full editable script/scene editor, revision comparison, rejection/reopen, and section regeneration
-- production TTS, pronunciation, word timings, normalization, caching, and narration UI
-- image generation and asset approval library
+- visual revision comparison and one-click section regeneration
+- word-level narration timings, FFmpeg normalization, playback controls, and manual narration-segment regeneration
+- asset browsing, replacement, and visual approval UI
 - Remotion compositions, FFmpeg utilities, dedicated render worker, previews, long video, and three vertical renders
 - platform variants, OAuth, publisher adapters, manual-publish packages, and reconciliation
 - functional calendar scheduling, analytics ingestion/reporting, provider settings, budget enforcement, and Sentry

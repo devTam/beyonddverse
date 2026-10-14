@@ -41,7 +41,8 @@ Use the exact email configured in `ADMIN_EMAIL`. Other addresses are rejected. A
 - `CONTENT_PROVIDER`: `ai-gateway` in production or explicit `development` locally.
 - `AI_GATEWAY_MODEL` and `AI_GATEWAY_API_KEY`: structured writing model and local/external credentials.
 - `AI_TRANSCRIPTION_MODEL`: transcription-capable Gateway model.
-- `AI_SPEECH_MODEL` and `AI_IMAGE_MODEL`: reserved for narration/image tasks still under implementation.
+- `AI_SPEECH_MODEL`, `TTS_VOICE`, `TTS_SPEED`, and `PRONUNCIATION_DICTIONARY`: scene narration configuration.
+- `AI_IMAGE_MODEL`: scene visual generation model.
 - `TRIGGER_PROJECT_REF`, `TRIGGER_SECRET_KEY`, `TRIGGER_PUBLIC_API_KEY`: Trigger.dev project/runtime credentials.
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER`: authenticated media storage.
 
