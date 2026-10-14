@@ -1,0 +1,479 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  DRAFT
+  WRITING
+  SCRIPT_REVIEW
+  MEDIA_PRODUCTION
+  FINAL_REVIEW
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+enum ApprovalStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AssetKind {
+  SOURCE_AUDIO
+  NARRATION
+  IMAGE
+  MUSIC
+  VIDEO
+  THUMBNAIL
+  SUBTITLE
+}
+
+enum WorkflowStatus {
+  QUEUED
+  RUNNING
+  WAITING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum PublishStatus {
+  DRAFT
+  AWAITING_APPROVAL
+  APPROVED
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  MANUAL_REQUIRED
+  CANCELED
+}
+
+model User {
+  id             String          @id @default(uuid()) @db.Uuid
+  email          String          @unique
+  name           String?
+  passwordHash   String?         @map("password_hash")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  explanations   Explanation[]
+  approvalEvents ApprovalEvent[]
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+model Translation {
+  id        String       @id @default(uuid()) @db.Uuid
+  code      String       @unique
+  name      String
+  language  String       @default("en")
+  license   String
+  isDefault Boolean      @default(false) @map("is_default")
+  verses    BibleVerse[]
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  @@map("translations")
+}
+
+model BibleBook {
+  id        String         @id @default(uuid()) @db.Uuid
+  ordinal   Int            @unique
+  name      String         @unique
+  slug      String         @unique
+  testament String
+  chapters  BibleChapter[]
+
+  @@map("bible_books")
+}
+
+model BibleChapter {
+  id              String           @id @default(uuid()) @db.Uuid
+  bookId          String           @map("book_id") @db.Uuid
+  number          Int
+  book            BibleBook        @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  verses          BibleVerse[]
+  projects        ChapterProject[]
+  crossReferences CrossReference[] @relation("CrossReferenceSource")
+  referencedBy    CrossReference[] @relation("CrossReferenceTarget")
+
+  @@unique([bookId, number])
+  @@index([bookId])
+  @@map("bible_chapters")
+}
+
+model BibleVerse {
+  id            String       @id @default(uuid()) @db.Uuid
+  chapterId     String       @map("chapter_id") @db.Uuid
+  translationId String       @map("translation_id") @db.Uuid
+  number        Int
+  text          String
+  chapter       BibleChapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  translation   Translation  @relation(fields: [translationId], references: [id], onDelete: Restrict)
+
+  @@unique([chapterId, translationId, number])
+  @@index([chapterId, translationId])
+  @@map("bible_verses")
+}
+
+model CrossReference {
+  id              String       @id @default(uuid()) @db.Uuid
+  sourceChapterId String       @map("source_chapter_id") @db.Uuid
+  targetChapterId String       @map("target_chapter_id") @db.Uuid
+  sourceVerse     Int?         @map("source_verse")
+  targetVerse     Int?         @map("target_verse")
+  note            String?
+  sourceChapter   BibleChapter @relation("CrossReferenceSource", fields: [sourceChapterId], references: [id], onDelete: Cascade)
+  targetChapter   BibleChapter @relation("CrossReferenceTarget", fields: [targetChapterId], references: [id], onDelete: Cascade)
+
+  @@index([sourceChapterId])
+  @@map("cross_references")
+}
+
+model ChapterProject {
+  id              String           @id @default(uuid()) @db.Uuid
+  chapterId       String           @map("chapter_id") @db.Uuid
+  title           String
+  status          ProjectStatus    @default(DRAFT)
+  currentStage    Int              @default(1) @map("current_stage")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  chapter         BibleChapter     @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  explanations    Explanation[]
+  contentPackages ContentPackage[]
+  workflowRuns    WorkflowRun[]
+  scheduledPosts  ScheduledPost[]
+  generationCosts GenerationCost[]
+
+  @@index([chapterId, status])
+  @@map("chapter_projects")
+}
+
+model Explanation {
+  id              String           @id @default(uuid()) @db.Uuid
+  projectId       String           @map("project_id") @db.Uuid
+  authorId        String?          @map("author_id") @db.Uuid
+  revision        Int
+  sourceType      String           @map("source_type")
+  originalText    String           @map("original_text")
+  editableText    String           @map("editable_text")
+  sourceAssetId   String?          @map("source_asset_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at")
+  project         ChapterProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author          User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  sourceAsset     Asset?           @relation("ExplanationSource", fields: [sourceAssetId], references: [id], onDelete: SetNull)
+  contentPackages ContentPackage[]
+
+  @@unique([projectId, revision])
+  @@map("explanations")
+}
+
+model PromptVersion {
+  id              String           @id @default(uuid()) @db.Uuid
+  key             String
+  version         Int
+  template        String
+  schemaVersion   String           @map("schema_version")
+  isActive        Boolean          @default(false) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  contentPackages ContentPackage[]
+
+  @@unique([key, version])
+  @@map("prompt_versions")
+}
+
+model ContentPackage {
+  id               String           @id @default(uuid()) @db.Uuid
+  projectId        String           @map("project_id") @db.Uuid
+  explanationId    String           @map("explanation_id") @db.Uuid
+  promptVersionId  String?          @map("prompt_version_id") @db.Uuid
+  version          Int
+  status           ApprovalStatus   @default(DRAFT)
+  outline          Json
+  socialCopy       Json             @map("social_copy")
+  metadata         Json
+  validationReport Json?            @map("validation_report")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  project          ChapterProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  explanation      Explanation      @relation(fields: [explanationId], references: [id], onDelete: Restrict)
+  promptVersion    PromptVersion?   @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+  scripts          Script[]
+  variants         ContentVariant[]
+
+  @@unique([projectId, version])
+  @@index([projectId, status])
+  @@map("content_packages")
+}
+
+model Script {
+  id               String          @id @default(uuid()) @db.Uuid
+  contentPackageId String          @map("content_package_id") @db.Uuid
+  parentId         String?         @map("parent_id") @db.Uuid
+  kind             String
+  revision         Int
+  title            String
+  hook             String
+  body             String
+  status           ApprovalStatus  @default(DRAFT)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  contentPackage   ContentPackage  @relation(fields: [contentPackageId], references: [id], onDelete: Cascade)
+  parent           Script?         @relation("ScriptRevisions", fields: [parentId], references: [id], onDelete: SetNull)
+  revisions        Script[]        @relation("ScriptRevisions")
+  scenes           ScriptScene[]
+  approvalEvents   ApprovalEvent[]
+
+  @@unique([contentPackageId, kind, revision])
+  @@index([contentPackageId, status])
+  @@map("scripts")
+}
+
+model ScriptScene {
+  id           String       @id @default(uuid()) @db.Uuid
+  scriptId     String       @map("script_id") @db.Uuid
+  position     Int
+  narration    String
+  visualType   String       @map("visual_type")
+  visualPrompt String       @map("visual_prompt")
+  scriptureRef String?      @map("scripture_ref")
+  durationMs   Int          @map("duration_ms")
+  script       Script       @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  narrations   Narration[]
+  assetUsages  AssetUsage[]
+
+  @@unique([scriptId, position])
+  @@map("script_scenes")
+}
+
+model Asset {
+  id               String        @id @default(uuid()) @db.Uuid
+  kind             AssetKind
+  storageKey       String        @unique @map("storage_key")
+  mimeType         String        @map("mime_type")
+  bytes            BigInt
+  checksum         String
+  width            Int?
+  height           Int?
+  durationMs       Int?          @map("duration_ms")
+  providerMetadata Json?         @map("provider_metadata")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  sourceFor        Explanation[] @relation("ExplanationSource")
+  usages           AssetUsage[]
+  narrations       Narration[]
+  videoRenders     VideoRender[]
+
+  @@index([kind, createdAt])
+  @@map("assets")
+}
+
+model AssetUsage {
+  id      String       @id @default(uuid()) @db.Uuid
+  assetId String       @map("asset_id") @db.Uuid
+  sceneId String?      @map("scene_id") @db.Uuid
+  role    String
+  asset   Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  scene   ScriptScene? @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, sceneId, role])
+  @@map("asset_usages")
+}
+
+model Narration {
+  id        String      @id @default(uuid()) @db.Uuid
+  sceneId   String      @map("scene_id") @db.Uuid
+  assetId   String      @map("asset_id") @db.Uuid
+  provider  String
+  voiceId   String      @map("voice_id")
+  inputHash String      @map("input_hash")
+  timings   Json?
+  createdAt DateTime    @default(now()) @map("created_at")
+  scene     ScriptScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  asset     Asset       @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@unique([sceneId, inputHash])
+  @@map("narrations")
+}
+
+model VideoRender {
+  id          String           @id @default(uuid()) @db.Uuid
+  assetId     String?          @map("asset_id") @db.Uuid
+  format      String
+  status      WorkflowStatus   @default(QUEUED)
+  composition String
+  input       Json
+  error       String?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  asset       Asset?           @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  variants    ContentVariant[]
+
+  @@index([status, createdAt])
+  @@map("video_renders")
+}
+
+model ContentVariant {
+  id               String          @id @default(uuid()) @db.Uuid
+  contentPackageId String          @map("content_package_id") @db.Uuid
+  videoRenderId    String?         @map("video_render_id") @db.Uuid
+  platform         String
+  kind             String
+  metadata         Json
+  contentPackage   ContentPackage  @relation(fields: [contentPackageId], references: [id], onDelete: Cascade)
+  videoRender      VideoRender?    @relation(fields: [videoRenderId], references: [id], onDelete: SetNull)
+  scheduledPosts   ScheduledPost[]
+
+  @@unique([contentPackageId, platform, kind])
+  @@map("content_variants")
+}
+
+model SocialAccount {
+  id             String          @id @default(uuid()) @db.Uuid
+  platform       String
+  externalId     String          @map("external_id")
+  displayName    String          @map("display_name")
+  timezone       String          @default("UTC")
+  encryptedToken String          @map("encrypted_token")
+  tokenExpiresAt DateTime?       @map("token_expires_at")
+  scheduledPosts ScheduledPost[]
+
+  @@unique([platform, externalId])
+  @@map("social_accounts")
+}
+
+model ScheduledPost {
+  id              String         @id @default(uuid()) @db.Uuid
+  projectId       String         @map("project_id") @db.Uuid
+  variantId       String         @map("variant_id") @db.Uuid
+  socialAccountId String         @map("social_account_id") @db.Uuid
+  scheduledAt     DateTime       @map("scheduled_at")
+  status          PublishStatus  @default(DRAFT)
+  idempotencyKey  String         @unique @map("idempotency_key")
+  project         ChapterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  variant         ContentVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  publishedPost   PublishedPost?
+
+  @@index([status, scheduledAt])
+  @@map("scheduled_posts")
+}
+
+model PublishedPost {
+  id              String              @id @default(uuid()) @db.Uuid
+  scheduledPostId String              @unique @map("scheduled_post_id") @db.Uuid
+  externalId      String              @map("external_id")
+  url             String
+  publishedAt     DateTime            @map("published_at")
+  rawResponse     Json?               @map("raw_response")
+  scheduledPost   ScheduledPost       @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
+  analytics       AnalyticsSnapshot[]
+
+  @@map("published_posts")
+}
+
+model AnalyticsSnapshot {
+  id              String        @id @default(uuid()) @db.Uuid
+  publishedPostId String        @map("published_post_id") @db.Uuid
+  capturedAt      DateTime      @map("captured_at")
+  metrics         Json
+  raw             Json
+  publishedPost   PublishedPost @relation(fields: [publishedPostId], references: [id], onDelete: Cascade)
+
+  @@unique([publishedPostId, capturedAt])
+  @@map("analytics_snapshots")
+}
+
+model WorkflowRun {
+  id             String         @id @default(uuid()) @db.Uuid
+  projectId      String         @map("project_id") @db.Uuid
+  type           String
+  status         WorkflowStatus @default(QUEUED)
+  idempotencyKey String         @unique @map("idempotency_key")
+  input          Json
+  output         Json?
+  error          String?
+  startedAt      DateTime?      @map("started_at")
+  completedAt    DateTime?      @map("completed_at")
+  project        ChapterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  steps          WorkflowStep[]
+
+  @@index([status, type])
+  @@map("workflow_runs")
+}
+
+model WorkflowStep {
+  id          String         @id @default(uuid()) @db.Uuid
+  runId       String         @map("run_id") @db.Uuid
+  name        String
+  position    Int
+  status      WorkflowStatus @default(QUEUED)
+  attempts    Int            @default(0)
+  error       String?
+  startedAt   DateTime?      @map("started_at")
+  completedAt DateTime?      @map("completed_at")
+  run         WorkflowRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, position])
+  @@map("workflow_steps")
+}
+
+model AiProviderSetting {
+  id              String   @id @default(uuid()) @db.Uuid
+  capability      String   @unique
+  provider        String
+  model           String
+  encryptedConfig String   @map("encrypted_config")
+  enabled         Boolean  @default(false)
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_provider_settings")
+}
+
+model GenerationCost {
+  id           String         @id @default(uuid()) @db.Uuid
+  projectId    String         @map("project_id") @db.Uuid
+  provider     String
+  operation    String
+  amountMicros BigInt         @map("amount_micros")
+  currency     String         @default("USD")
+  units        Json?
+  createdAt    DateTime       @default(now()) @map("created_at")
+  project      ChapterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@map("generation_costs")
+}
+
+model ApprovalEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  scriptId  String   @map("script_id") @db.Uuid
+  actorId   String?  @map("actor_id") @db.Uuid
+  action    String
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  script    Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([scriptId, createdAt])
+  @@map("approval_events")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@map("audit_logs")
+}

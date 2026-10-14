@@ -1,0 +1,2 @@
+import { Settings2 } from "lucide-react";
+export default function SettingsPage(){return <div className="page"><header className="topbar"><div><p className="eyebrow">Workspace</p><h1>Settings</h1><p>Provider credentials stay encrypted and server-side.</p></div></header><section className="empty-state"><Settings2 size={30}/><h2>Development provider active</h2><p>Add Cloudinary credentials to enable authenticated media storage and signed delivery. AI and social adapters remain independently configurable.</p></section></div>}

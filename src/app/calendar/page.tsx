@@ -1,0 +1,2 @@
+import { CalendarDays } from "lucide-react";
+export default function CalendarPage(){return <div className="page"><header className="topbar"><div><p className="eyebrow">Distribution</p><h1>Publishing calendar</h1><p>Approved content will appear here in account-local time; instants remain stored in UTC.</p></div></header><section className="empty-state"><CalendarDays size={30}/><h2>No posts scheduled</h2><p>Complete final media review to unlock platform scheduling.</p></section></div>}

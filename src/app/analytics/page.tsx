@@ -1,0 +1,2 @@
+import { ChartNoAxesCombined } from "lucide-react";
+export default function AnalyticsPage(){return <div className="page"><header className="topbar"><div><p className="eyebrow">Learning loop</p><h1>Performance analytics</h1><p>Only metrics collected from connected official platform APIs are shown.</p></div></header><section className="empty-state"><ChartNoAxesCombined size={30}/><h2>Publish to begin learning</h2><p>Recommendations stay disabled until there is enough real performance data.</p></section></div>}
