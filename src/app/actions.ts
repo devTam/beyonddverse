@@ -12,6 +12,8 @@ import type { contentPipeline } from "../../trigger/content-pipeline";
 import type { narrationPipeline } from "../../trigger/narration";
 import type { visualPipeline } from "../../trigger/visuals";
 import type { renderLongFormVideo } from "../../trigger/rendering";
+import type { renderShortFormVideo } from "../../trigger/rendering";
+import type { publishScheduledPost } from "../../trigger/publishing";
 
 const ExplanationInput = z.object({
   projectId: z.string().uuid(),
@@ -98,17 +100,21 @@ export async function generateContent(formData: FormData) {
 export async function approveScript(formData: FormData) {
   const session = await requireUser(await headers());
   const scriptId = z.string().uuid().parse(formData.get("scriptId"));
-  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { contentPackage: true } });
+  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { contentPackage: true, scenes: true } });
   const laterRevision = await prisma.script.findFirst({ where: { contentPackageId: script.contentPackageId, kind: script.kind, revision: { gt: script.revision } } });
   if (laterRevision) throw new Error("Only the latest script revision can be approved.");
   const report = script.contentPackage.validationReport as { valid?: boolean } | null;
   if (!report?.valid) throw new Error("Resolve Scripture validation issues before approval.");
-  await prisma.$transaction([
-    prisma.script.update({ where: { id: scriptId }, data: { status: "APPROVED" } }),
-    prisma.contentPackage.update({ where: { id: script.contentPackageId }, data: { status: "APPROVED" } }),
-    prisma.approvalEvent.create({ data: { scriptId, actorId: session.user.id, action: "APPROVED", note: "Approved for media production" } }),
-    prisma.chapterProject.update({ where: { id: script.contentPackage.projectId }, data: { status: "MEDIA_PRODUCTION", currentStage: 4 } }),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    if (script.kind.startsWith("SHORT_") && !script.scenes.length) {
+      const narration = `${script.hook} ${script.body}`;
+      await tx.scriptScene.create({ data: { scriptId: script.id, position: 1, narration, visualType: "typography", visualPrompt: `Premium editorial Bible education visual for “${script.title}”. Warm gold light, dark neutral and deep green palette, generous negative space, no depiction of God, no embedded text.`, durationMs: Math.max(30_000, Math.min(60_000, Math.round(narration.split(/\s+/).length / 2.4 * 1_000))) } });
+    }
+    await tx.script.update({ where: { id: scriptId }, data: { status: "APPROVED" } });
+    await tx.contentPackage.update({ where: { id: script.contentPackageId }, data: { status: "APPROVED" } });
+    await tx.approvalEvent.create({ data: { scriptId, actorId: session.user.id, action: "APPROVED", note: "Approved for media production" } });
+    await tx.chapterProject.update({ where: { id: script.contentPackage.projectId }, data: { status: "MEDIA_PRODUCTION", currentStage: 4 } });
+  });
   revalidatePath("/");
   revalidatePath("/studio/genesis-1");
 }
@@ -243,6 +249,7 @@ export async function renderLongVideo(formData: FormData) {
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
   const render = await prisma.videoRender.create({ data: { format: "16:9", composition: "YouTubeLong", status: "QUEUED", input: { scriptId: script.id } } });
+  await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "YOUTUBE", kind: "LONG_FORM_MASTER" } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "YOUTUBE", kind: "LONG_FORM_MASTER", metadata: { aspectRatio: "16:9", scriptId: script.id } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "16:9", scriptId: script.id } } });
   const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "LONG_FORM_RENDER", status: "QUEUED", idempotencyKey, input: { scriptId: script.id, renderId: render.id }, steps: { create: { position: 1, name: "Render 16:9 master" } } } });
   try {
     const handle = await tasks.trigger<typeof renderLongFormVideo>("render-long-form-video", { workflowRunId: run.id, renderId: render.id }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `script:${script.id}`, `render:${render.id}`] });
@@ -255,4 +262,109 @@ export async function renderLongVideo(formData: FormData) {
     throw error;
   }
   redirect(`/studio/genesis-1?workflow=${run.id}`);
+}
+
+export async function renderShortVideo(formData: FormData) {
+  await requireUser(await headers());
+  if (!process.env.TRIGGER_SECRET_KEY) throw new Error("TRIGGER_SECRET_KEY is required to start rendering.");
+  const scriptId = z.string().uuid().parse(formData.get("scriptId"));
+  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { include: { narrations: true, assetUsages: { where: { role: "PRIMARY_VISUAL" } } } }, contentPackage: true } });
+  if (!script.kind.startsWith("SHORT_")) throw new Error("This render action only accepts short scripts.");
+  if (script.status !== "APPROVED") throw new Error("Approve the short before rendering.");
+  if (!script.scenes.length || script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length)) throw new Error("Every short scene needs narration and a visual before rendering.");
+  const idempotencyKey = `render:short:${script.id}:v1`;
+  const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
+  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  const render = await prisma.videoRender.create({ data: { format: "9:16", composition: "YouTubeShort", status: "QUEUED", input: { scriptId: script.id } } });
+  await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "MASTER", kind: script.kind } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "MASTER", kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id } } });
+  const socialCopy = script.contentPackage.socialCopy as Record<string, unknown>;
+  await Promise.all(["YOUTUBE_SHORTS", "TIKTOK", "INSTAGRAM_REELS", "FACEBOOK_REELS"].map((platform) => prisma.contentVariant.upsert({
+    where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform, kind: script.kind } },
+    create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform, kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[platform.toLowerCase()] ?? null } },
+    update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[platform.toLowerCase()] ?? null } },
+  })));
+  const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "SHORT_FORM_RENDER", status: "QUEUED", idempotencyKey, input: { scriptId: script.id, renderId: render.id }, steps: { create: { position: 1, name: `Render ${script.kind.toLowerCase().replace("_", " ")} master` } } } });
+  try {
+    const handle = await tasks.trigger<typeof renderShortFormVideo>("render-short-form-video", { workflowRunId: run.id, renderId: render.id }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `script:${script.id}`, `render:${render.id}`] });
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id, renderId: render.id } } });
+  } catch (error) {
+    await prisma.$transaction([
+      prisma.videoRender.update({ where: { id: render.id }, data: { status: "FAILED", error: error instanceof Error ? error.message : "Unable to dispatch render" } }),
+      prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unable to dispatch render" } }),
+    ]);
+    throw error;
+  }
+  redirect(`/studio/genesis-1?workflow=${run.id}`);
+}
+
+export async function createManualSocialAccount(formData: FormData) {
+  const session = await requireUser(await headers());
+  const input = z.object({ platform: z.enum(["YOUTUBE", "TIKTOK", "INSTAGRAM", "FACEBOOK", "X"]), displayName: z.string().trim().min(2).max(100), timezone: z.string().trim().min(1).max(100) }).parse(Object.fromEntries(formData));
+  const account = await prisma.socialAccount.upsert({ where: { platform_externalId: { platform: input.platform, externalId: `manual:${input.platform.toLowerCase()}` } }, create: { platform: input.platform, externalId: `manual:${input.platform.toLowerCase()}`, displayName: input.displayName, timezone: input.timezone, encryptedToken: null }, update: { displayName: input.displayName, timezone: input.timezone } });
+  await prisma.auditLog.create({ data: { actorId: session.user.id, action: "MANUAL_SOCIAL_ACCOUNT_CONFIGURED", entityType: "SocialAccount", entityId: account.id, after: { platform: account.platform, displayName: account.displayName, timezone: account.timezone } } });
+  revalidatePath("/settings");
+  revalidatePath("/calendar");
+}
+
+export async function approveVariant(formData: FormData) {
+  const session = await requireUser(await headers());
+  const variantId = z.string().uuid().parse(formData.get("variantId"));
+  const variant = await prisma.contentVariant.findUniqueOrThrow({ where: { id: variantId }, include: { videoRender: true } });
+  if (variant.videoRender?.status !== "SUCCEEDED" || !variant.videoRender.assetId) throw new Error("Only a completed render can receive final approval.");
+  await prisma.$transaction([
+    prisma.contentVariant.update({ where: { id: variant.id }, data: { status: "APPROVED" } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: "CONTENT_VARIANT_APPROVED", entityType: "ContentVariant", entityId: variant.id, before: { status: variant.status }, after: { status: "APPROVED" } } }),
+  ]);
+  revalidatePath("/calendar");
+}
+
+export async function schedulePost(formData: FormData) {
+  await requireUser(await headers());
+  if (!process.env.TRIGGER_SECRET_KEY) throw new Error("TRIGGER_SECRET_KEY is required to schedule publication.");
+  const input = z.object({ variantId: z.string().uuid(), socialAccountId: z.string().uuid(), scheduledAt: z.string().datetime({ offset: true }) }).parse(Object.fromEntries(formData));
+  const scheduledAt = new Date(input.scheduledAt);
+  if (scheduledAt.getTime() < Date.now() + 60_000) throw new Error("Schedule at least one minute in the future.");
+  const [variant, account] = await Promise.all([prisma.contentVariant.findUniqueOrThrow({ where: { id: input.variantId }, include: { contentPackage: true, videoRender: true } }), prisma.socialAccount.findUniqueOrThrow({ where: { id: input.socialAccountId } })]);
+  if (variant.status !== "APPROVED" || variant.videoRender?.status !== "SUCCEEDED") throw new Error("Final media approval is required before scheduling.");
+  const compatible = variant.platform === "MASTER" || variant.platform.startsWith(account.platform);
+  if (!compatible) throw new Error("The selected variant is not compatible with this platform account.");
+  const idempotencyKey = `publish:${variant.id}:${account.id}:${scheduledAt.toISOString()}`;
+  const post = await prisma.scheduledPost.create({ data: { projectId: variant.contentPackage.projectId, variantId: variant.id, socialAccountId: account.id, scheduledAt, status: "SCHEDULED", idempotencyKey } });
+  const run = await prisma.workflowRun.create({ data: { projectId: variant.contentPackage.projectId, type: "SOCIAL_PUBLISH", status: "QUEUED", idempotencyKey: `workflow:${idempotencyKey}`, input: { scheduledPostId: post.id }, steps: { create: { position: 1, name: `Publish to ${account.platform}` } } } });
+  try {
+    const handle = await tasks.trigger<typeof publishScheduledPost>("publish-scheduled-post", { workflowRunId: run.id, scheduledPostId: post.id }, { idempotencyKey, idempotencyKeyTTL: "30d", delay: scheduledAt, tags: [`post:${post.id}`, `platform:${account.platform}`] });
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id, scheduledPostId: post.id } } });
+  } catch (error) {
+    await prisma.$transaction([
+      prisma.scheduledPost.update({ where: { id: post.id }, data: { status: "FAILED" } }),
+      prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unable to schedule publication" } }),
+    ]);
+    throw error;
+  }
+  revalidatePath("/calendar");
+}
+
+export async function cancelScheduledPost(formData: FormData) {
+  const session = await requireUser(await headers());
+  const postId = z.string().uuid().parse(formData.get("postId"));
+  const post = await prisma.scheduledPost.findUniqueOrThrow({ where: { id: postId } });
+  if (!["SCHEDULED", "AWAITING_APPROVAL", "MANUAL_REQUIRED"].includes(post.status)) throw new Error("This publication can no longer be canceled.");
+  await prisma.$transaction([
+    prisma.scheduledPost.update({ where: { id: post.id }, data: { status: "CANCELED" } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: "SCHEDULED_POST_CANCELED", entityType: "ScheduledPost", entityId: post.id, before: { status: post.status }, after: { status: "CANCELED" } } }),
+  ]);
+  revalidatePath("/calendar");
+}
+
+export async function reschedulePost(formData: FormData) {
+  await requireUser(await headers());
+  const input = z.object({ postId: z.string().uuid(), scheduledAt: z.string().datetime({ offset: true }) }).parse(Object.fromEntries(formData));
+  const post = await prisma.scheduledPost.findUniqueOrThrow({ where: { id: input.postId } });
+  if (!["SCHEDULED", "MANUAL_REQUIRED"].includes(post.status)) throw new Error("Only pending publications can be rescheduled.");
+  await prisma.scheduledPost.update({ where: { id: post.id }, data: { status: "CANCELED" } });
+  const replacement = new FormData();
+  replacement.set("variantId", post.variantId);
+  replacement.set("socialAccountId", post.socialAccountId);
+  replacement.set("scheduledAt", input.scheduledAt);
+  await schedulePost(replacement);
 }

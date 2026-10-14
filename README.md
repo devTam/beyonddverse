@@ -47,6 +47,7 @@ Use the exact email configured in `ADMIN_EMAIL`. Other addresses are rejected. A
 - `AI_IMAGE_MODEL`: scene visual generation model.
 - `TRIGGER_PROJECT_REF`, `TRIGGER_SECRET_KEY`, `TRIGGER_PUBLIC_API_KEY`: Trigger.dev project/runtime credentials.
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER`: authenticated media storage.
+- `RENDER_WORKER_URL` and `RENDER_WORKER_SECRET`: HTTPS origin and shared secret for the dedicated renderer.
 
 ## Commands
 

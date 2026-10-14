@@ -375,6 +375,7 @@ model ContentVariant {
   videoRenderId    String?         @map("video_render_id") @db.Uuid
   platform         String
   kind             String
+  status           ApprovalStatus  @default(DRAFT)
   metadata         Json
   contentPackage   ContentPackage  @relation(fields: [contentPackageId], references: [id], onDelete: Cascade)
   videoRender      VideoRender?    @relation(fields: [videoRenderId], references: [id], onDelete: SetNull)
@@ -390,7 +391,7 @@ model SocialAccount {
   externalId     String          @map("external_id")
   displayName    String          @map("display_name")
   timezone       String          @default("UTC")
-  encryptedToken String          @map("encrypted_token")
+  encryptedToken String?         @map("encrypted_token")
   tokenExpiresAt DateTime?       @map("token_expires_at")
   scheduledPosts ScheduledPost[]
 

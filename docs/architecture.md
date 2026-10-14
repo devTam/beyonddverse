@@ -17,6 +17,8 @@ Beyond the Verse is currently a Next.js modular monolith backed by PostgreSQL/Pr
 - approval-gated scene narration with configurable voice/speed/pronunciation, per-scene retries, and cross-revision cache reuse
 - approval-gated scene visual generation with per-scene retries, prompt/model cache reuse, and asset provenance metadata
 - shared Remotion 16:9/9:16 compositions, dedicated authenticated render worker, FFmpeg utilities, render reconciliation, and Cloudinary video output
+- three separately approved short scripts with independent narration/visual generation and shared 9:16 platform masters
+- database-backed final media approval, UTC scheduling, cancel/reschedule controls, and delayed manual-publishing fallback tasks
 - production web build, Trigger.dev bundle dry-run, strict type check, lint, unit tests, and auth HTTP behavior
 
 ## Not implemented yet
@@ -25,8 +27,8 @@ Beyond the Verse is currently a Next.js modular monolith backed by PostgreSQL/Pr
 - word-level narration timings, FFmpeg normalization, playback controls, and manual narration-segment regeneration
 - asset browsing, replacement, and visual approval UI
 - rendered-media preview/approval UI, background music selection/audio ducking, and three short-specific vertical render inputs
-- platform variants, OAuth, publisher adapters, manual-publish packages, and reconciliation
-- functional calendar scheduling, analytics ingestion/reporting, provider settings, budget enforcement, and Sentry
+- official OAuth and publisher adapters, downloadable manual-publish packages, and remote-status reconciliation
+- analytics ingestion/reporting, full provider settings, budget enforcement, and Sentry
 - complete public-domain Bible verse import beyond Genesis 1
 - end-to-end MVP acceptance test through an authorized social test account
 

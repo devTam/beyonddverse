@@ -137,7 +137,20 @@ export const persistContentPackage = schemaTask({
               body: payload.generated.script.body, status: "PENDING",
               scenes: { create: payload.generated.script.scenes.map((scene, index) => ({ ...scene, position: index + 1 })) },
             },
-            ...payload.generated.shorts.map((short, index) => ({ kind: `SHORT_${index + 1}`, revision: 1, ...short, status: "DRAFT" as const })),
+            ...payload.generated.shorts.map((short, index) => ({
+              kind: `SHORT_${index + 1}`,
+              revision: 1,
+              ...short,
+              status: "PENDING" as const,
+              scenes: { create: [{
+                position: 1,
+                narration: `${short.hook} ${short.body}`,
+                visualType: "typography",
+                visualPrompt: `Premium editorial Bible education visual for “${short.title}”. Warm gold light, dark neutral and deep green palette, generous negative space, no depiction of God, no embedded text.`,
+                scriptureRef: null,
+                durationMs: Math.max(30_000, Math.min(60_000, Math.round(`${short.hook} ${short.body}`.split(/\s+/).length / 2.4 * 1_000))),
+              }] },
+            })),
           ] },
         },
       });
