@@ -21,7 +21,11 @@ Authenticate/link once with `npx vercel login` and `npx vercel link`. Set `.env.
 
 Use `npm install` as install command and `npm run build` as build command.
 
-## 4. First production release
+## 4. Dedicated render worker
+
+Build `workers/render/Dockerfile` with repository root as its build context on a container host with at least 2 vCPU and 4 GB RAM. Set `DATABASE_URL`, the Cloudinary variables, and a strong `RENDER_WORKER_SECRET`. Expose HTTPS port 8080 through the host and set that origin as `RENDER_WORKER_URL` in Trigger.dev. The worker serializes renders by default to bound memory.
+
+## 5. First production release
 
 1. Apply Railway migrations and seed.
 2. Deploy Trigger.dev tasks and confirm they are active.

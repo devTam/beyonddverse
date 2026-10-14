@@ -18,6 +18,8 @@ AI-assisted Bible teaching production studio built with Next.js 16, Prisma, Post
 6. In another terminal, start the durable task worker: `npm run trigger:dev`.
 7. Open `http://localhost:3000`.
 
+For containerized PostgreSQL and the dedicated renderer, set the Cloudinary and render-worker variables, then run `docker compose up --build`. The renderer health endpoint is `http://localhost:8080/health`.
+
 For deliberate offline UI development only, set `CONTENT_PROVIDER=development`. Production must use `CONTENT_PROVIDER=ai-gateway`.
 
 ## Create the first administrator
@@ -52,6 +54,7 @@ Use the exact email configured in `ADMIN_EMAIL`. Other addresses are rejected. A
 - `npm run trigger:dev` — Trigger.dev local worker
 - `npm run build` — production web build
 - `npm run trigger:deploy` — deploy Trigger.dev tasks
+- `npm run render:worker` — run the dedicated Remotion/FFmpeg worker
 - `npm run lint` — lint source
 - `npm run test` — unit tests
 - `npx tsc --noEmit` — strict type check
@@ -64,6 +67,6 @@ Use the exact email configured in `ADMIN_EMAIL`. Other addresses are rejected. A
 - Railway: PostgreSQL only.
 - Trigger.dev Cloud: durable generation/transcription jobs.
 - Cloudinary: authenticated source and generated media assets.
-- Dedicated render worker: required for Remotion/FFmpeg; not yet implemented or deployed.
+- Dedicated render worker: Remotion/FFmpeg container, deployed separately from Vercel.
 
 No Vercel Marketplace database/storage integration is needed. See [architecture and status](docs/architecture.md) and [deployment runbook](docs/deployment.md).

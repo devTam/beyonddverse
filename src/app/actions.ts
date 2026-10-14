@@ -11,6 +11,7 @@ import { contentHash } from "@/lib/content/provider";
 import type { contentPipeline } from "../../trigger/content-pipeline";
 import type { narrationPipeline } from "../../trigger/narration";
 import type { visualPipeline } from "../../trigger/visuals";
+import type { renderLongFormVideo } from "../../trigger/rendering";
 
 const ExplanationInput = z.object({
   projectId: z.string().uuid(),
@@ -226,6 +227,31 @@ export async function generateVisuals(formData: FormData) {
     await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
   } catch (error) {
     await prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unable to dispatch visual generation" } });
+    throw error;
+  }
+  redirect(`/studio/genesis-1?workflow=${run.id}`);
+}
+
+export async function renderLongVideo(formData: FormData) {
+  await requireUser(await headers());
+  if (!process.env.TRIGGER_SECRET_KEY) throw new Error("TRIGGER_SECRET_KEY is required to start rendering.");
+  const scriptId = z.string().uuid().parse(formData.get("scriptId"));
+  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { include: { narrations: true, assetUsages: { where: { role: "PRIMARY_VISUAL" } } } }, contentPackage: true } });
+  if (script.status !== "APPROVED") throw new Error("Approve the script before rendering.");
+  if (script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length)) throw new Error("Every scene needs narration and an approved visual before rendering.");
+  const idempotencyKey = `render:long:${script.id}:v1`;
+  const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
+  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  const render = await prisma.videoRender.create({ data: { format: "16:9", composition: "YouTubeLong", status: "QUEUED", input: { scriptId: script.id } } });
+  const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "LONG_FORM_RENDER", status: "QUEUED", idempotencyKey, input: { scriptId: script.id, renderId: render.id }, steps: { create: { position: 1, name: "Render 16:9 master" } } } });
+  try {
+    const handle = await tasks.trigger<typeof renderLongFormVideo>("render-long-form-video", { workflowRunId: run.id, renderId: render.id }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `script:${script.id}`, `render:${render.id}`] });
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id, renderId: render.id } } });
+  } catch (error) {
+    await prisma.$transaction([
+      prisma.videoRender.update({ where: { id: render.id }, data: { status: "FAILED", error: error instanceof Error ? error.message : "Unable to dispatch render" } }),
+      prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unable to dispatch render" } }),
+    ]);
     throw error;
   }
   redirect(`/studio/genesis-1?workflow=${run.id}`);

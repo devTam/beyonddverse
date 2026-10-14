@@ -1,5 +1,3 @@
-import "server-only";
-
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { v2 as cloudinary, type UploadApiOptions, type UploadApiResponse } from "cloudinary";
 import { z } from "zod";
