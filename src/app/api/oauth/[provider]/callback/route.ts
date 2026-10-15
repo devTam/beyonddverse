@@ -25,6 +25,8 @@ export async function GET(request: Request, context: { params: Promise<{ provide
   const accountToken = typeof metadata.pageAccessToken === "string" ? metadata.pageAccessToken : tokens.accessToken;
   delete metadata.pageAccessToken;
   const platform = provider === "youtube" ? "YOUTUBE" : provider === "tiktok" ? "TIKTOK" : metadata.instagramBusinessId ? "INSTAGRAM" : "FACEBOOK";
+  const facebookId = provider === "meta" && typeof metadata.pageId === "string" ? metadata.pageId : null;
+  const facebookName = typeof metadata.pageName === "string" ? metadata.pageName : identity.displayName;
   await prisma.$transaction([
     prisma.oAuthState.update({ where: { id: saved.id }, data: { consumedAt: new Date() } }),
     prisma.socialAccount.upsert({
@@ -32,6 +34,7 @@ export async function GET(request: Request, context: { params: Promise<{ provide
       create: { platform, externalId: identity.externalId, displayName: identity.displayName, encryptedToken: encryptSecret(accountToken), encryptedRefreshToken: tokens.refreshToken ? encryptSecret(tokens.refreshToken) : null, tokenExpiresAt: tokens.expiresAt, scopes: tokens.scopes, providerMetadata: metadata as Prisma.InputJsonValue },
       update: { displayName: identity.displayName, encryptedToken: encryptSecret(accountToken), encryptedRefreshToken: tokens.refreshToken ? encryptSecret(tokens.refreshToken) : undefined, tokenExpiresAt: tokens.expiresAt, scopes: tokens.scopes, providerMetadata: metadata as Prisma.InputJsonValue, disconnectedAt: null },
     }),
+    ...(facebookId && platform !== "FACEBOOK" ? [prisma.socialAccount.upsert({ where: { platform_externalId: { platform: "FACEBOOK", externalId: facebookId } }, create: { platform: "FACEBOOK", externalId: facebookId, displayName: facebookName, encryptedToken: encryptSecret(accountToken), tokenExpiresAt: tokens.expiresAt, scopes: tokens.scopes, providerMetadata: metadata as Prisma.InputJsonValue }, update: { displayName: facebookName, encryptedToken: encryptSecret(accountToken), tokenExpiresAt: tokens.expiresAt, scopes: tokens.scopes, providerMetadata: metadata as Prisma.InputJsonValue, disconnectedAt: null } })] : []),
     prisma.auditLog.create({ data: { actorId: session.user.id, action: "SOCIAL_ACCOUNT_CONNECTED", entityType: "SocialAccount", entityId: identity.externalId, after: { platform, displayName: identity.displayName, scopes: tokens.scopes } } }),
   ]);
   return NextResponse.redirect(new URL("/settings?connected=1", request.url));

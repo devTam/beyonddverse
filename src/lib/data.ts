@@ -34,7 +34,7 @@ export async function getGenesisProject() {
         include: {
           scripts: {
             orderBy: { revision: "desc" },
-            include: { scenes: { orderBy: { position: "asc" }, include: { narrations: true, assetUsages: true } } },
+            include: { scenes: { orderBy: { position: "asc" }, include: { narrations: true, assetUsages: { include: { asset: true } } } } },
           },
         },
       },

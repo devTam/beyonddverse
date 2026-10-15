@@ -28,6 +28,7 @@ export async function POST(request: Request) {
   const asset = await prisma.asset.create({ data: {
     kind: "SOURCE_AUDIO", storageKey: input.upload.public_id, mimeType: input.mimeType, bytes: BigInt(input.upload.bytes), checksum: input.upload.etag,
     durationMs: input.upload.duration ? Math.round(input.upload.duration * 1000) : null,
+    projectId: input.projectId,
     providerMetadata: { provider: "cloudinary", resourceType: input.upload.resource_type, deliveryType: input.upload.type, version: input.upload.version, format: input.upload.format, secureUrl: input.upload.secure_url, originalFilename: input.filename },
   } });
   const workflow = await prisma.workflowRun.create({ data: {

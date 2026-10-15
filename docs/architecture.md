@@ -19,17 +19,21 @@ Beyond the Verse is currently a Next.js modular monolith backed by PostgreSQL/Pr
 - shared Remotion 16:9/9:16 compositions, dedicated authenticated render worker, FFmpeg utilities, render reconciliation, and Cloudinary video output
 - three separately approved short scripts with independent narration/visual generation and shared 9:16 platform masters
 - database-backed final media approval, UTC scheduling, cancel/reschedule controls, and delayed manual-publishing fallback tasks
+- complete 66-book WEB USFM source and deterministic 31,000+ verse importer
+- encrypted OAuth connections and official YouTube, Instagram, and TikTok publisher adapters
+- publication attempt history, remote reconciliation, official analytics collection, and analytics dashboards
+- asset approval library, thumbnail generation, background-music selection, and generation budget enforcement
+- Sentry instrumentation, database-backed authentication rate limiting, CSP/security headers, and worker readiness checks
 - production web build, Trigger.dev bundle dry-run, strict type check, lint, unit tests, and auth HTTP behavior
 
 ## Not implemented yet
 
 - visual revision comparison and one-click section regeneration
 - word-level narration timings, FFmpeg normalization, playback controls, and manual narration-segment regeneration
-- asset browsing, replacement, and visual approval UI
-- rendered-media preview/approval UI, background music selection/audio ducking, and three short-specific vertical render inputs
-- official OAuth and publisher adapters, downloadable manual-publish packages, and remote-status reconciliation
-- analytics ingestion/reporting, full provider settings, budget enforcement, and Sentry
-- complete public-domain Bible verse import beyond Genesis 1
+- visual replacement upload and side-by-side revision comparison
+- word-level narration timings and manual narration-segment replacement
+- richer rendered-media preview controls and downloadable manual-publish packages
+- provider settings editing remains environment-managed rather than exposing secrets to the UI
 - end-to-end MVP acceptance test through an authorized social test account
 
 ## Operational blockers requiring account access

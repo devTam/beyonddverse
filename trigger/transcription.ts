@@ -3,6 +3,7 @@ import { transcribe } from "ai";
 import { z } from "zod";
 import { createSignedDeliveryUrl } from "../src/lib/storage/cloudinary";
 import { prisma } from "../src/lib/prisma";
+import { assertWithinBudget, configuredRate, recordGenerationCost } from "../src/lib/costs";
 
 const TranscriptionInput = z.object({
   workflowRunId: z.string().uuid(),
@@ -23,6 +24,7 @@ export const transcribeExplanation = schemaTask({
       prisma.workflowStep.update({ where: { runId_position: { runId: payload.workflowRunId, position: 1 } }, data: { status: "RUNNING", attempts: { increment: 1 }, startedAt: new Date() } }),
     ]);
     try {
+      await assertWithinBudget(payload.projectId);
       const asset = await prisma.asset.findUniqueOrThrow({ where: { id: payload.assetId } });
       if (asset.kind !== "SOURCE_AUDIO") throw new Error("The supplied asset is not source audio.");
       const result = await transcribe({
@@ -32,6 +34,8 @@ export const transcribeExplanation = schemaTask({
         telemetry: { isEnabled: true, functionId: "explanation-transcription", recordInputs: false, recordOutputs: false },
       });
       if (result.text.trim().length < 20) throw new Error("The transcription was too short to use as an explanation.");
+      const durationInSeconds = result.durationInSeconds ?? (asset.durationMs ?? 0) / 1_000;
+      await recordGenerationCost({ projectId: payload.projectId, provider: "vercel-ai-gateway", model, operation: "TRANSCRIPTION", amountMicros: (durationInSeconds / 60) * configuredRate("AI_TRANSCRIPTION_COST_PER_MINUTE_USD") * 1_000_000, units: { durationInSeconds } });
       const latest = await prisma.explanation.findFirst({ where: { projectId: payload.projectId }, orderBy: { revision: "desc" } });
       const explanation = await prisma.$transaction(async (tx) => {
         const created = await tx.explanation.create({ data: {

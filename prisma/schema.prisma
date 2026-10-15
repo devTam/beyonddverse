@@ -572,6 +572,16 @@ model OperationalAlert {
   @@map("operational_alerts")
 }
 
+model RateLimitEntry {
+  key         String   @id
+  count       Int      @default(1)
+  windowStart DateTime @map("window_start")
+  expiresAt   DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("rate_limit_entries")
+}
+
 model ApprovalEvent {
   id        String   @id @default(uuid()) @db.Uuid
   scriptId  String   @map("script_id") @db.Uuid

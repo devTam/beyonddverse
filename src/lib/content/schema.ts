@@ -17,7 +17,13 @@ export const GeneratedPackageSchema = z.object({
     ).min(3),
   }),
   shorts: z.array(z.object({ title: z.string(), hook: z.string(), body: z.string() })).length(3),
-  socialCopy: z.record(z.string(), z.object({ caption: z.string(), hashtags: z.array(z.string()) })),
+  socialCopy: z.object({
+    youtube: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
+    youtubeShorts: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
+    instagram: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
+    facebook: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
+    tiktok: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
+  }),
   metadata: z.object({
     description: z.string(),
     keywords: z.array(z.string()),

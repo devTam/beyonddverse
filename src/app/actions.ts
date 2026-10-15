@@ -14,6 +14,7 @@ import type { visualPipeline } from "../../trigger/visuals";
 import type { renderLongFormVideo } from "../../trigger/rendering";
 import type { renderShortFormVideo } from "../../trigger/rendering";
 import type { publishScheduledPost } from "../../trigger/publishing";
+import type { generateThumbnail } from "../../trigger/thumbnails";
 
 const ExplanationInput = z.object({
   projectId: z.string().uuid(),
@@ -53,6 +54,43 @@ export async function saveExplanation(formData: FormData) {
     prisma.chapterProject.update({ where: { id: input.projectId }, data: { status: "WRITING", currentStage: 2 } }),
   ]);
   revalidatePath("/studio/genesis-1");
+}
+
+export async function updateAssetApproval(formData: FormData) {
+  const session = await requireUser(await headers());
+  const input = z.object({ assetId: z.string().uuid(), status: z.enum(["APPROVED", "REJECTED"]) }).parse(Object.fromEntries(formData));
+  const asset = await prisma.asset.findUniqueOrThrow({ where: { id: input.assetId } });
+  await prisma.$transaction([
+    prisma.asset.update({ where: { id: asset.id }, data: { status: input.status } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: `ASSET_${input.status}`, entityType: "Asset", entityId: asset.id, before: { status: asset.status }, after: { status: input.status } } }),
+  ]);
+  revalidatePath("/assets");
+}
+
+export async function selectBackgroundMusic(formData: FormData) {
+  const session = await requireUser(await headers());
+  const assetId = z.string().uuid().parse(formData.get("assetId"));
+  const asset = await prisma.asset.findUniqueOrThrow({ where: { id: assetId } });
+  if (asset.kind !== "MUSIC" || asset.status !== "APPROVED") throw new Error("Select an approved music asset.");
+  await prisma.$transaction([
+    prisma.workspaceSetting.upsert({ where: { key: "backgroundMusicAssetId" }, create: { key: "backgroundMusicAssetId", value: asset.id }, update: { value: asset.id } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: "BACKGROUND_MUSIC_SELECTED", entityType: "Asset", entityId: asset.id, after: { assetId: asset.id, license: asset.license } } }),
+  ]);
+  revalidatePath("/settings");
+}
+
+export async function generateContentThumbnail(formData: FormData) {
+  await requireUser(await headers());
+  const scriptId = z.string().uuid().parse(formData.get("scriptId"));
+  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { contentPackage: true } });
+  if (script.status !== "APPROVED") throw new Error("Approve the script before generating a thumbnail.");
+  const idempotencyKey = `thumbnail:${script.contentPackageId}:${script.revision}`;
+  const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
+  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "THUMBNAIL", idempotencyKey, input: { contentPackageId: script.contentPackageId }, steps: { create: { position: 1, name: "Generate thumbnail" } } } });
+  const handle = await tasks.trigger<typeof generateThumbnail>("generate-content-thumbnail", { workflowRunId: run.id, projectId: script.contentPackage.projectId, contentPackageId: script.contentPackageId }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `package:${script.contentPackageId}`] });
+  await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
+  redirect(`/studio/genesis-1?workflow=${run.id}`);
 }
 
 export async function generateContent(formData: FormData) {
@@ -242,14 +280,15 @@ export async function renderLongVideo(formData: FormData) {
   await requireUser(await headers());
   if (!process.env.TRIGGER_SECRET_KEY) throw new Error("TRIGGER_SECRET_KEY is required to start rendering.");
   const scriptId = z.string().uuid().parse(formData.get("scriptId"));
-  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { include: { narrations: true, assetUsages: { where: { role: "PRIMARY_VISUAL" } } } }, contentPackage: true } });
+  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { include: { narrations: true, assetUsages: { where: { role: "PRIMARY_VISUAL" }, include: { asset: true } } } }, contentPackage: true } });
   if (script.status !== "APPROVED") throw new Error("Approve the script before rendering.");
-  if (script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length)) throw new Error("Every scene needs narration and an approved visual before rendering.");
+  if (script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length || scene.assetUsages.some((usage) => usage.asset.status !== "APPROVED"))) throw new Error("Every scene needs narration and an approved visual before rendering.");
   const idempotencyKey = `render:long:${script.id}:v1`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
   const render = await prisma.videoRender.create({ data: { format: "16:9", composition: "YouTubeLong", status: "QUEUED", input: { scriptId: script.id } } });
-  await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "YOUTUBE", kind: "LONG_FORM_MASTER" } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "YOUTUBE", kind: "LONG_FORM_MASTER", metadata: { aspectRatio: "16:9", scriptId: script.id } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "16:9", scriptId: script.id } } });
+  const longCopy = (script.contentPackage.socialCopy as Record<string, unknown>).youtube ?? null;
+  await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "YOUTUBE", kind: "LONG_FORM_MASTER" } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "YOUTUBE", kind: "LONG_FORM_MASTER", metadata: { aspectRatio: "16:9", scriptId: script.id, title: script.title, copy: longCopy } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "16:9", scriptId: script.id, title: script.title, copy: longCopy } } });
   const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "LONG_FORM_RENDER", status: "QUEUED", idempotencyKey, input: { scriptId: script.id, renderId: render.id }, steps: { create: { position: 1, name: "Render 16:9 master" } } } });
   try {
     const handle = await tasks.trigger<typeof renderLongFormVideo>("render-long-form-video", { workflowRunId: run.id, renderId: render.id }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `script:${script.id}`, `render:${render.id}`] });
@@ -268,20 +307,21 @@ export async function renderShortVideo(formData: FormData) {
   await requireUser(await headers());
   if (!process.env.TRIGGER_SECRET_KEY) throw new Error("TRIGGER_SECRET_KEY is required to start rendering.");
   const scriptId = z.string().uuid().parse(formData.get("scriptId"));
-  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { include: { narrations: true, assetUsages: { where: { role: "PRIMARY_VISUAL" } } } }, contentPackage: true } });
+  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { include: { narrations: true, assetUsages: { where: { role: "PRIMARY_VISUAL" }, include: { asset: true } } } }, contentPackage: true } });
   if (!script.kind.startsWith("SHORT_")) throw new Error("This render action only accepts short scripts.");
   if (script.status !== "APPROVED") throw new Error("Approve the short before rendering.");
-  if (!script.scenes.length || script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length)) throw new Error("Every short scene needs narration and a visual before rendering.");
+  if (!script.scenes.length || script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length || scene.assetUsages.some((usage) => usage.asset.status !== "APPROVED"))) throw new Error("Every short scene needs narration and an approved visual before rendering.");
   const idempotencyKey = `render:short:${script.id}:v1`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
   const render = await prisma.videoRender.create({ data: { format: "9:16", composition: "YouTubeShort", status: "QUEUED", input: { scriptId: script.id } } });
   await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "MASTER", kind: script.kind } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "MASTER", kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id } } });
   const socialCopy = script.contentPackage.socialCopy as Record<string, unknown>;
+  const copyKey: Record<string, string> = { YOUTUBE_SHORTS: "youtubeShorts", TIKTOK: "tiktok", INSTAGRAM_REELS: "instagram", FACEBOOK_REELS: "facebook" };
   await Promise.all(["YOUTUBE_SHORTS", "TIKTOK", "INSTAGRAM_REELS", "FACEBOOK_REELS"].map((platform) => prisma.contentVariant.upsert({
     where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform, kind: script.kind } },
-    create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform, kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[platform.toLowerCase()] ?? null } },
-    update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[platform.toLowerCase()] ?? null } },
+    create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform, kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[copyKey[platform]] ?? null } },
+    update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[copyKey[platform]] ?? null } },
   })));
   const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "SHORT_FORM_RENDER", status: "QUEUED", idempotencyKey, input: { scriptId: script.id, renderId: render.id }, steps: { create: { position: 1, name: `Render ${script.kind.toLowerCase().replace("_", " ")} master` } } } });
   try {

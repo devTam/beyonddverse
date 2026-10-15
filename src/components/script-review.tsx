@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Check, GitCompareArrows, RotateCcw, Save, ShieldCheck, X } from "lucide-react";
-import { approveScript, generateNarration, generateVisuals, rejectScript, renderLongVideo, reopenScript, saveScriptRevision } from "@/app/actions";
+import { approveScript, generateContentThumbnail, generateNarration, generateVisuals, rejectScript, renderLongVideo, reopenScript, saveScriptRevision } from "@/app/actions";
 import { StatusPill } from "@/components/status-pill";
 
 type Scene = {
@@ -40,7 +40,8 @@ export function ScriptReview({ script, revisions, validation, narrationReady, vi
       {script.status !== "REJECTED" ? <form action={rejectScript} className="reject-form"><input type="hidden" name="scriptId" value={script.id}/><label className="sr-only" htmlFor={`rejection-${script.id}`}>Rejection reason</label><input id={`rejection-${script.id}`} name="note" required minLength={10} placeholder="Reason for rejection"/><button className="button button-ghost"><X size={15}/> Reject</button></form> : null}
     </div> : null}
     {latest && script.status === "APPROVED" ? <form action={generateNarration} className="narration-row"><div><strong>Generate scene narration</strong><small>Unchanged scene audio is reused by content, voice, speed, model, and pronunciation hash.</small></div><input type="hidden" name="scriptId" value={script.id}/><button className="button button-primary">Generate narration →</button></form> : null}
-    {latest && script.status === "APPROVED" && narrationReady ? <form action={generateVisuals} className="visual-row"><div><strong>{visualsReady ? "Scene visuals are ready" : "Generate scene visuals"}</strong><small>Prompt-identical assets are reused; changed scenes run independently.</small></div><input type="hidden" name="scriptId" value={script.id}/><button className="button button-primary">{visualsReady ? "Check visuals" : "Generate visuals →"}</button></form> : null}
+    {latest && script.status === "APPROVED" ? <form action={generateContentThumbnail} className="visual-row"><div><strong>Generate YouTube thumbnail</strong><small>Uses the approved package concept and stores the result for review in Cloudinary.</small></div><input type="hidden" name="scriptId" value={script.id}/><button className="button button-primary">Generate thumbnail →</button></form> : null}
+    {latest && script.status === "APPROVED" && narrationReady ? <form action={generateVisuals} className="visual-row"><div><strong>{visualsReady ? "Scene visuals are approved" : "Generate or review scene visuals"}</strong><small>Generated visuals must be approved in the media library before rendering.</small></div><input type="hidden" name="scriptId" value={script.id}/>{visualsReady ? <Link className="button button-primary" href="/assets">Review assets</Link> : <button className="button button-primary">Generate visuals →</button>}</form> : null}
     {latest && script.status === "APPROVED" && visualsReady ? <form action={renderLongVideo} className="render-row"><div><strong>Render 16:9 master</strong><small>Runs on the dedicated Remotion/FFmpeg worker, never inside Vercel.</small></div><input type="hidden" name="scriptId" value={script.id}/><button className="button button-primary">Render video →</button></form> : null}
   </section>;
 }

@@ -18,16 +18,23 @@ function getBundle() {
 type RenderInput = { scriptId: string };
 
 async function buildProps(scriptId: string): Promise<VideoInput> {
-  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" }, include: { narrations: { orderBy: { createdAt: "desc" }, take: 1, include: { asset: true } }, assetUsages: { where: { role: "PRIMARY_VISUAL" }, take: 1, include: { asset: true } } } } } });
+  const [script, musicSetting] = await Promise.all([
+    prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" }, include: { narrations: { orderBy: { createdAt: "desc" }, take: 1, include: { asset: true } }, assetUsages: { where: { role: "PRIMARY_VISUAL" }, take: 1, include: { asset: true } } } } } }),
+    prisma.workspaceSetting.findUnique({ where: { key: "backgroundMusicAssetId" } }),
+  ]);
   if (script.status !== "APPROVED") throw new Error("Rendering requires an approved script.");
   const scenes = script.scenes.map((scene) => {
     const narration = scene.narrations[0];
     const visual = scene.assetUsages[0];
     if (!narration || !visual) throw new Error(`Scene ${scene.position} is missing narration or a visual.`);
     const durationMs = narration.asset.durationMs ?? scene.durationMs;
-    return { id: scene.id, narration: scene.narration, narrationUrl: createSignedDeliveryUrl(narration.asset), visualUrl: createSignedDeliveryUrl(visual.asset), scriptureRef: scene.scriptureRef, durationInFrames: Math.max(30, Math.ceil(durationMs / 1_000 * 30)) };
+    const timings = Array.isArray(narration.timings) ? narration.timings as Array<{ word: string; startMs: number; endMs: number }> : undefined;
+    return { id: scene.id, narration: scene.narration, narrationUrl: createSignedDeliveryUrl(narration.asset), visualUrl: createSignedDeliveryUrl(visual.asset), scriptureRef: scene.scriptureRef, durationInFrames: Math.max(30, Math.ceil(durationMs / 1_000 * 30)), timings };
   });
-  return { title: script.title, hook: script.hook, brandName: "Beyond the Verse", fps: 30, scenes };
+  const musicAssetId = typeof musicSetting?.value === "string" ? musicSetting.value : undefined;
+  const musicAsset = musicAssetId ? await prisma.asset.findUnique({ where: { id: musicAssetId } }) : null;
+  if (musicAsset && (musicAsset.kind !== "MUSIC" || musicAsset.status !== "APPROVED")) throw new Error("Configured background music must be an approved MUSIC asset.");
+  return { title: script.title, hook: script.hook, brandName: "Beyond the Verse", backgroundMusicUrl: musicAsset ? createSignedDeliveryUrl(musicAsset) : undefined, fps: 30, scenes };
 }
 
 export async function executeRender(renderId: string) {

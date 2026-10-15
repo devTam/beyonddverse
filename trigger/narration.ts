@@ -4,10 +4,18 @@ import { contentHash } from "../src/lib/content/provider";
 import { getSpeechProvider } from "../src/lib/audio/tts";
 import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
 import { prisma } from "../src/lib/prisma";
+import { assertWithinBudget, configuredRate, recordGenerationCost } from "../src/lib/costs";
 
 const narrationQueue = queue({ name: "narration-generation", concurrencyLimit: 3 });
 const SceneInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), sceneId: z.string().uuid(), position: z.number().int().positive() });
 const PipelineInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), scriptId: z.string().uuid() });
+
+function wordTimings(text: string, durationMs: number) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const weight = words.reduce((sum, word) => sum + Math.max(1, word.length), 0);
+  let cursor = 0;
+  return words.map((word) => { const startMs = cursor; cursor += Math.round(durationMs * Math.max(1, word.length) / weight); return { word, startMs, endMs: cursor }; });
+}
 
 export const generateSceneNarration = schemaTask({
   id: "generate-scene-narration",
@@ -29,9 +37,13 @@ export const generateSceneNarration = schemaTask({
       const narration = cached
         ? await prisma.narration.create({ data: { sceneId: scene.id, assetId: cached.assetId, provider: cached.provider, voiceId: cached.voiceId, inputHash, timings: cached.timings ?? undefined } })
         : await (async () => {
+            await assertWithinBudget(payload.projectId);
             const speech = await getSpeechProvider().synthesize(scene.narration);
             const asset = await uploadAndCreateAsset({ body: speech.audio, kind: "NARRATION", mimeType: speech.mimeType, filename: `scene-${scene.position}.${speech.format}`, projectId: payload.projectId });
-            return prisma.narration.create({ data: { sceneId: scene.id, assetId: asset.id, provider: speech.provider, voiceId: speech.voiceId, inputHash } });
+            const timings = wordTimings(scene.narration, asset.durationMs ?? scene.durationMs);
+            const created = await prisma.narration.create({ data: { sceneId: scene.id, assetId: asset.id, provider: speech.provider, voiceId: speech.voiceId, inputHash, timings } });
+            await recordGenerationCost({ projectId: payload.projectId, provider: speech.provider, model, operation: "SPEECH", amountMicros: scene.narration.length * configuredRate("AI_SPEECH_COST_PER_MILLION_CHARACTERS"), units: { characters: scene.narration.length } });
+            return created;
           })();
       await prisma.workflowStep.update({ where: stepKey, data: { status: "SUCCEEDED", completedAt: new Date() } });
       return { narrationId: narration.id, assetId: narration.assetId, cached: Boolean(cached) };

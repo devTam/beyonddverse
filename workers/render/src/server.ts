@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { z } from "zod";
 import { executeRender } from "./render";
+import { prisma } from "../../../src/lib/prisma";
 
 const RequestSchema = z.object({ renderId: z.string().uuid() });
 const port = Number(process.env.PORT ?? 8080);
@@ -9,6 +10,11 @@ let queue = Promise.resolve<unknown>(undefined);
 createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/ready") {
+    try { await prisma.$queryRaw`SELECT 1`; response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ready: true })); }
+    catch { response.writeHead(503, { "content-type": "application/json" }).end(JSON.stringify({ ready: false })); }
     return;
   }
   if (request.method !== "POST" || request.url !== "/render") {

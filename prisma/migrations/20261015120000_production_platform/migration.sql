@@ -72,3 +72,12 @@ CREATE TABLE "operational_alerts" (
   CONSTRAINT "operational_alerts_pkey" PRIMARY KEY ("id")
 );
 CREATE INDEX "operational_alerts_resolved_at_severity_created_at_idx" ON "operational_alerts"("resolved_at", "severity", "created_at");
+
+CREATE TABLE "rate_limit_entries" (
+  "key" TEXT NOT NULL,
+  "count" INTEGER NOT NULL DEFAULT 1,
+  "window_start" TIMESTAMP(3) NOT NULL,
+  "expires_at" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "rate_limit_entries_pkey" PRIMARY KEY ("key")
+);
+CREATE INDEX "rate_limit_entries_expires_at_idx" ON "rate_limit_entries"("expires_at");

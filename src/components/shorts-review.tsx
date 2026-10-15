@@ -9,7 +9,7 @@ type ShortScript = {
   hook: string;
   body: string;
   status: string;
-  scenes: Array<{ narrations: unknown[]; assetUsages: Array<{ role: string }> }>;
+  scenes: Array<{ narrations: unknown[]; assetUsages: Array<{ role: string; asset: { status: string } }> }>;
 };
 
 export function ShortsReview({ scripts, citationsValid }: { scripts: ShortScript[]; citationsValid: boolean }) {
@@ -17,7 +17,7 @@ export function ShortsReview({ scripts, citationsValid }: { scripts: ShortScript
     <div className="section-title"><div><span className="step-number">04</span><div><p className="eyebrow">Repurposing</p><h2>Three standalone shorts</h2></div></div></div>
     <div className="short-grid">{scripts.map((script, index) => {
       const narrationReady = script.scenes.length > 0 && script.scenes.every((scene) => scene.narrations.length > 0);
-      const visualsReady = script.scenes.length > 0 && script.scenes.every((scene) => scene.assetUsages.some((usage) => usage.role === "PRIMARY_VISUAL"));
+      const visualsReady = script.scenes.length > 0 && script.scenes.every((scene) => scene.assetUsages.some((usage) => usage.role === "PRIMARY_VISUAL" && usage.asset.status === "APPROVED"));
       return <article key={script.id} className="short-card">
         <div className="short-heading"><span>Short {index + 1}</span><StatusPill status={script.status}/></div>
         <h3>{script.title}</h3><blockquote>{script.hook}</blockquote><p>{script.body}</p>

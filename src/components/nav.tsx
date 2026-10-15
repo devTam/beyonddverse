@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { BookOpenText, CalendarDays, ChartNoAxesCombined, Clapperboard, LayoutDashboard, Settings2, Sparkles } from "lucide-react";
+import { BookOpenText, CalendarDays, ChartNoAxesCombined, Clapperboard, Images, LayoutDashboard, Settings2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/studio/genesis-1", label: "Chapter studio", icon: Clapperboard, active: true },
   { href: "/library", label: "Bible library", icon: BookOpenText },
+  { href: "/assets", label: "Media library", icon: Images },
   { href: "/calendar", label: "Publishing", icon: CalendarDays },
   { href: "/analytics", label: "Analytics", icon: ChartNoAxesCombined },
 ];

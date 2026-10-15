@@ -38,8 +38,10 @@ export class DevelopmentContentProvider implements ContentProvider {
       ],
       socialCopy: {
         youtube: { caption: "Walk through Genesis 1 and discover its movement from disorder to a world called very good.", hashtags: ["BibleStudy", "Genesis", "ChristianEducation"] },
+        youtubeShorts: { caption: "Genesis 1 in under a minute: creation is purposeful, ordered, and good.", hashtags: ["Shorts", "BibleStudy", "Genesis1"] },
         instagram: { caption: "Your dignity is received before it is achieved. Genesis 1 grounds human worth in the image of God.", hashtags: ["Genesis1", "BibleTeaching", "Faith"] },
-        x: { caption: "Genesis 1 moves from forming to filling—and from God's speech to a world called good.", hashtags: ["BibleStudy", "Genesis"] },
+        facebook: { caption: "Explore Genesis 1 and the biblical foundation for human dignity, purpose, and care for creation.", hashtags: ["BibleStudy", "Genesis", "Faith"] },
+        tiktok: { caption: "The pattern hidden in Genesis 1: forming, filling, and a world called good.", hashtags: ["BibleTok", "Genesis1", "ChristianEducation"] },
       },
       metadata: {
         description: "A chapter-by-chapter teaching on Genesis 1, creation, human dignity, and the goodness of the world.",

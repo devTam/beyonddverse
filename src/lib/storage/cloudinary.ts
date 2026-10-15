@@ -147,6 +147,7 @@ export async function uploadAndCreateAsset(input: UploadMediaInput) {
         version: media.version,
         secureUrl: media.secureUrl,
       } satisfies Prisma.InputJsonValue,
+      projectId: input.projectId,
     },
   });
 }

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { gateway, generateImage } from "ai";
+import { gateway, generateText } from "ai";
 import { z } from "zod";
 
 const ImageEnvironment = z.object({ AI_IMAGE_MODEL: z.string().min(1) });
@@ -14,14 +14,13 @@ export interface ImageProvider {
 export class AiGatewayImageProvider implements ImageProvider {
   async generate(prompt: string) {
     const env = ImageEnvironment.parse(process.env);
-    const result = await generateImage({
-      model: gateway.image(env.AI_IMAGE_MODEL),
-      prompt,
-      aspectRatio: "16:9",
-      n: 1,
+    const result = await generateText({
+      model: gateway(env.AI_IMAGE_MODEL),
+      prompt: `${prompt}\n\nGenerate one cinematic 16:9 image. Do not embed text, logos, watermarks, or depictions of God.`,
       maxRetries: 2,
+      experimental_telemetry: { isEnabled: true, functionId: "scene-visual", recordInputs: false, recordOutputs: false },
     });
-    const image = result.images[0];
+    const image = result.files.find((file) => file.mediaType.startsWith("image/"));
     if (!image) throw new Error("The image provider returned no image.");
     const format = image.mediaType.split("/")[1] || "png";
     return { body: Buffer.from(image.uint8Array), mimeType: image.mediaType, format, provider: "ai-gateway", model: env.AI_IMAGE_MODEL };

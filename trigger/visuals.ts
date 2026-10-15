@@ -5,6 +5,7 @@ import { contentHash } from "../src/lib/content/provider";
 import { getImageProvider } from "../src/lib/visuals/image-provider";
 import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
 import { prisma } from "../src/lib/prisma";
+import { assertWithinBudget, configuredRate, recordGenerationCost } from "../src/lib/costs";
 
 const visualQueue = queue({ name: "scene-visual-generation", concurrencyLimit: 2 });
 const SceneInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), sceneId: z.string().uuid(), position: z.number().int().positive() });
@@ -27,10 +28,13 @@ export const generateSceneVisual = schemaTask({
       const inputHash = contentHash(JSON.stringify({ prompt: scene.visualPrompt, model, aspectRatio: "16:9", brand: "beyond-the-verse-v1" }));
       const cached = await prisma.asset.findFirst({ where: { kind: "IMAGE", providerMetadata: { path: ["generation", "inputHash"], equals: inputHash } } });
       const asset = cached ?? await (async () => {
+        await assertWithinBudget(payload.projectId);
         const visual = await getImageProvider().generate(scene.visualPrompt);
         const created = await uploadAndCreateAsset({ body: visual.body, kind: "IMAGE", mimeType: visual.mimeType, filename: `scene-${scene.position}.${visual.format}`, projectId: payload.projectId });
         const storage = (created.providerMetadata ?? {}) as Prisma.JsonObject;
-        return prisma.asset.update({ where: { id: created.id }, data: { providerMetadata: { ...storage, generation: { inputHash, prompt: scene.visualPrompt, provider: visual.provider, model: visual.model, aspectRatio: "16:9" } } } });
+        const updated = await prisma.asset.update({ where: { id: created.id }, data: { providerMetadata: { ...storage, generation: { inputHash, prompt: scene.visualPrompt, provider: visual.provider, model: visual.model, aspectRatio: "16:9" } } } });
+        await recordGenerationCost({ projectId: payload.projectId, provider: visual.provider, model: visual.model, operation: "IMAGE", amountMicros: configuredRate("AI_IMAGE_COST_USD") * 1_000_000, units: { images: 1 } });
+        return updated;
       })();
       await prisma.assetUsage.upsert({ where: { assetId_sceneId_role: { assetId: asset.id, sceneId: scene.id, role: "PRIMARY_VISUAL" } }, create: { assetId: asset.id, sceneId: scene.id, role: "PRIMARY_VISUAL" }, update: {} });
       await prisma.workflowStep.update({ where: stepKey, data: { status: "SUCCEEDED", completedAt: new Date() } });
