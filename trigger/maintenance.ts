@@ -3,6 +3,7 @@ import { prisma } from "../src/lib/prisma";
 import { decryptSecret, encryptSecret } from "../src/lib/security/encryption";
 import { oauthProvider, type SupportedProvider } from "../src/lib/publishing";
 import { collectPublicationAnalytics, reconcilePublishedPost } from "./publishing";
+import { deleteMedia } from "../src/lib/storage/cloudinary";
 
 export const reconcileAndCollect = schedules.task({
   id: "reconcile-publications-and-collect-analytics",
@@ -35,6 +36,31 @@ export const refreshSocialTokens = schedules.task({
       }
     }
     return { processed: accounts.length };
+  },
+});
+
+export const cleanupOrphanedAssets = schedules.task({
+  id: "cleanup-orphaned-media-assets",
+  cron: "30 3 * * *",
+  maxDuration: 900,
+  run: async () => {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60_000);
+    const assets = await prisma.asset.findMany({
+      where: { createdAt: { lt: cutoff }, status: { in: ["DRAFT", "REJECTED"] }, sourceFor: { none: {} }, usages: { none: {} }, narrations: { none: {} }, videoRenders: { none: {} } },
+      take: 100,
+      orderBy: { createdAt: "asc" },
+    });
+    let deleted = 0;
+    for (const asset of assets) {
+      try {
+        await deleteMedia(asset);
+        await prisma.asset.delete({ where: { id: asset.id } });
+        deleted++;
+      } catch (error) {
+        await prisma.operationalAlert.create({ data: { severity: "WARNING", category: "ASSET_CLEANUP", message: error instanceof Error ? error.message : "Asset cleanup failed", entityType: "Asset", entityId: asset.id } });
+      }
+    }
+    return { examined: assets.length, deleted };
   },
 });
 import "../src/lib/observability/node";
