@@ -66,7 +66,7 @@ export const cleanupOrphanedAssets = schedules.task({
 
 export const reconcileRenderJobs = schedules.task({
   id: "reconcile-railway-render-jobs",
-  cron: "*/10 * * * *",
+  cron: { pattern: "*/10 * * * *", window: "5m" },
   maxDuration: 300,
   run: async () => {
     const runs = await prisma.workflowRun.findMany({

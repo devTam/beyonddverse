@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Check, GitCompareArrows, RotateCcw, Save, ShieldCheck, X } from "lucide-react";
-import { approveScript, generateContentThumbnail, generateNarration, generateVisuals, regenerateSection, rejectScript, renderLongVideo, reopenScript, saveScriptRevision } from "@/app/actions";
+import { approveScript, generateContentThumbnail, generateNarration, generateVisuals, regenerateSceneNarration, regenerateSceneVisual, regenerateSection, rejectScript, renderLongVideo, reopenScript, saveScriptRevision } from "@/app/actions";
 import { StatusPill } from "@/components/status-pill";
 
 type Scene = {
@@ -34,6 +34,7 @@ export function ScriptReview({ script, revisions, validation, narrationReady, vi
         {scene.narrationUrl ? <audio controls preload="metadata" src={scene.narrationUrl}>Your browser does not support audio playback.</audio> : null}
         <label>Visual direction<textarea name={`scene.${scene.id}.visualPrompt`} defaultValue={scene.visualPrompt} required/></label>
         <div className="scene-fields"><label>Scripture reference<input name={`scene.${scene.id}.scriptureRef`} defaultValue={scene.scriptureRef ?? ""}/></label><label>Duration (ms)<input name={`scene.${scene.id}.durationMs`} type="number" min={1000} max={300000} defaultValue={scene.durationMs} required/></label></div>
+        {script.status === "APPROVED" ? <div className="action-row"><button className="button button-ghost" type="submit" formAction={regenerateSceneNarration} formNoValidate name="sceneId" value={scene.id}>Regenerate this narration</button><button className="button button-ghost" type="submit" formAction={regenerateSceneVisual} formNoValidate name="sceneId" value={scene.id} disabled={!scene.narrationUrl}>Replace this visual</button></div> : null}
       </fieldset>)}</div>
       {latest ? <div className="editor-save"><span>Saving creates a new immutable revision; this version is retained.</span><button className="button button-secondary"><Save size={15}/> Save as revision {script.revision + 1}</button></div> : null}
     </form>

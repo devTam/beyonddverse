@@ -13,7 +13,9 @@ import { decryptSecret } from "@/lib/security/encryption";
 import { assertWorkflowCapacity, getProductionSettings, ProductionSettingsSchema, PRODUCTION_SETTINGS_KEY } from "@/lib/settings";
 import type { contentPipeline } from "../../trigger/content-pipeline";
 import type { narrationPipeline } from "../../trigger/narration";
+import type { regenerateSingleSceneNarration } from "../../trigger/narration";
 import type { visualPipeline } from "../../trigger/visuals";
+import type { regenerateSingleSceneVisual } from "../../trigger/visuals";
 import type { renderLongFormVideo } from "../../trigger/rendering";
 import type { renderShortFormVideo } from "../../trigger/rendering";
 import type { publishScheduledPost } from "../../trigger/publishing";
@@ -337,6 +339,35 @@ export async function generateVisuals(formData: FormData) {
     throw error;
   }
   redirect(`/studio/genesis-1?workflow=${run.id}`);
+}
+
+export async function regenerateSceneNarration(formData: FormData) {
+  await requireUser(await headers());
+  const sceneId = z.string().uuid().parse(formData.get("sceneId"));
+  const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: sceneId }, include: { script: { include: { contentPackage: true } } } });
+  if (scene.script.status !== "APPROVED") throw new Error("Approve the script before regenerating narration.");
+  await assertWorkflowCapacity();
+  const regenerationId = crypto.randomUUID();
+  const idempotencyKey = `narration-regeneration:${scene.id}:${regenerationId}`;
+  const run = await prisma.workflowRun.create({ data: { projectId: scene.script.contentPackage.projectId, type: "SCENE_NARRATION_REGENERATION", idempotencyKey, input: { sceneId, regenerationId }, steps: { create: { position: 1, name: `Regenerate narration for scene ${scene.position}` } } } });
+  const handle = await tasks.trigger<typeof regenerateSingleSceneNarration>("regenerate-single-scene-narration", { workflowRunId: run.id, projectId: scene.script.contentPackage.projectId, sceneId, position: 1, regenerationId }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${scene.script.contentPackage.projectId}`, `scene:${scene.id}`] });
+  await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
+  redirect(`/studio/genesis-1?workflow=${run.id}&script=${scene.scriptId}`);
+}
+
+export async function regenerateSceneVisual(formData: FormData) {
+  await requireUser(await headers());
+  const sceneId = z.string().uuid().parse(formData.get("sceneId"));
+  const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: sceneId }, include: { narrations: true, script: { include: { contentPackage: true } } } });
+  if (scene.script.status !== "APPROVED") throw new Error("Approve the script before regenerating a visual.");
+  if (!scene.narrations.length) throw new Error("Generate narration before regenerating a visual.");
+  await assertWorkflowCapacity();
+  const regenerationId = crypto.randomUUID();
+  const idempotencyKey = `visual-regeneration:${scene.id}:${regenerationId}`;
+  const run = await prisma.workflowRun.create({ data: { projectId: scene.script.contentPackage.projectId, type: "SCENE_VISUAL_REGENERATION", idempotencyKey, input: { sceneId, regenerationId }, steps: { create: { position: 1, name: `Regenerate visual for scene ${scene.position}` } } } });
+  const handle = await tasks.trigger<typeof regenerateSingleSceneVisual>("regenerate-single-scene-visual", { workflowRunId: run.id, projectId: scene.script.contentPackage.projectId, sceneId, position: 1, regenerationId }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${scene.script.contentPackage.projectId}`, `scene:${scene.id}`] });
+  await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
+  redirect(`/studio/genesis-1?workflow=${run.id}&script=${scene.scriptId}`);
 }
 
 export async function renderLongVideo(formData: FormData) {

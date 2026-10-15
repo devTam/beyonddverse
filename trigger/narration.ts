@@ -8,7 +8,7 @@ import { assertWithinBudget, configuredRate, recordGenerationCost } from "../src
 import { getProductionSettings } from "../src/lib/settings";
 
 const narrationQueue = queue({ name: "narration-generation", concurrencyLimit: 3 });
-const SceneInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), sceneId: z.string().uuid(), position: z.number().int().positive() });
+const SceneInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), sceneId: z.string().uuid(), position: z.number().int().positive(), regenerationId: z.string().uuid().optional() });
 const PipelineInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), scriptId: z.string().uuid() });
 
 function wordTimings(text: string, durationMs: number) {
@@ -33,7 +33,7 @@ export const generateSceneNarration = schemaTask({
       const settings = await getProductionSettings();
       const voice = settings.narratorVoice;
       const model = settings.speechModel;
-      const inputHash = contentHash(JSON.stringify({ narration: scene.narration, voice, model, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary }));
+      const inputHash = contentHash(JSON.stringify({ narration: scene.narration, voice, model, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary, regenerationId: payload.regenerationId }));
       const cached = await prisma.narration.findFirst({ where: { inputHash }, include: { asset: true } });
       const narration = cached
         ? await prisma.narration.create({ data: { sceneId: scene.id, assetId: cached.assetId, provider: cached.provider, voiceId: cached.voiceId, inputHash, timings: cached.timings ?? undefined } })
@@ -50,6 +50,23 @@ export const generateSceneNarration = schemaTask({
       return { narrationId: narration.id, assetId: narration.assetId, cached: Boolean(cached) };
     } catch (error) {
       await prisma.workflowStep.update({ where: stepKey, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unknown narration failure" } });
+      throw error;
+    }
+  },
+});
+
+export const regenerateSingleSceneNarration = schemaTask({
+  id: "regenerate-single-scene-narration",
+  schema: SceneInput.extend({ regenerationId: z.string().uuid() }),
+  maxDuration: 900,
+  run: async (payload, { ctx }) => {
+    await prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "RUNNING", startedAt: new Date() } });
+    try {
+      const result = await generateSceneNarration.triggerAndWait(payload, { idempotencyKey: `narration-regeneration:${payload.sceneId}:${payload.regenerationId}` }).unwrap();
+      await prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "SUCCEEDED", completedAt: new Date(), output: { ...result, triggerRunId: ctx.run.id } } });
+      return result;
+    } catch (error) {
+      await prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Scene narration regeneration failed" } });
       throw error;
     }
   },
