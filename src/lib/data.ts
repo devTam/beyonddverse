@@ -37,7 +37,7 @@ export async function getChapterProject(projectId?: string, workflowId?: string,
         include: {
           scripts: {
             orderBy: { revision: "desc" },
-            include: { scenes: { orderBy: { position: "asc" }, include: { narrations: true, assetUsages: { include: { asset: true } } } } },
+            include: { scenes: { orderBy: { position: "asc" }, include: { narrations: { include: { asset: true }, orderBy: { createdAt: "desc" } }, assetUsages: { include: { asset: true } } } } },
           },
         },
       },

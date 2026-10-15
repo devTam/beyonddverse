@@ -10,6 +10,7 @@ type Scene = {
   visualPrompt: string;
   scriptureRef: string | null;
   durationMs: number;
+  narrationUrl: string | null;
 };
 type Script = { id: string; title: string; hook: string; body: string; status: string; revision: number; scenes: Scene[] };
 type Revision = { id: string; revision: number; status: string; createdAt: Date };
@@ -30,6 +31,7 @@ export function ScriptReview({ script, revisions, validation, narrationReady, vi
       <div className="scene-editor-list">{script.scenes.map((scene) => <fieldset key={scene.id} disabled={!latest}>
         <legend>Scene {String(scene.position).padStart(2, "0")}</legend>
         <label>Narration<textarea name={`scene.${scene.id}.narration`} defaultValue={scene.narration} required/></label>
+        {scene.narrationUrl ? <audio controls preload="metadata" src={scene.narrationUrl}>Your browser does not support audio playback.</audio> : null}
         <label>Visual direction<textarea name={`scene.${scene.id}.visualPrompt`} defaultValue={scene.visualPrompt} required/></label>
         <div className="scene-fields"><label>Scripture reference<input name={`scene.${scene.id}.scriptureRef`} defaultValue={scene.scriptureRef ?? ""}/></label><label>Duration (ms)<input name={`scene.${scene.id}.durationMs`} type="number" min={1000} max={300000} defaultValue={scene.durationMs} required/></label></div>
       </fieldset>)}</div>
