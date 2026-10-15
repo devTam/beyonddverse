@@ -5,6 +5,7 @@ import { getSpeechProvider } from "../src/lib/audio/tts";
 import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
 import { prisma } from "../src/lib/prisma";
 import { assertWithinBudget, configuredRate, recordGenerationCost } from "../src/lib/costs";
+import { getProductionSettings } from "../src/lib/settings";
 
 const narrationQueue = queue({ name: "narration-generation", concurrencyLimit: 3 });
 const SceneInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), sceneId: z.string().uuid(), position: z.number().int().positive() });
@@ -29,16 +30,16 @@ export const generateSceneNarration = schemaTask({
     try {
       const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: payload.sceneId }, include: { script: true } });
       if (scene.script.status !== "APPROVED") throw new Error("Narration requires an approved script.");
-      const voice = process.env.TTS_VOICE;
-      const model = process.env.AI_SPEECH_MODEL;
-      if (!voice || !model) throw new Error("AI_SPEECH_MODEL and TTS_VOICE are required.");
-      const inputHash = contentHash(JSON.stringify({ narration: scene.narration, voice, model, speed: process.env.TTS_SPEED ?? "1", dictionary: process.env.PRONUNCIATION_DICTIONARY ?? "{}" }));
+      const settings = await getProductionSettings();
+      const voice = settings.narratorVoice;
+      const model = settings.speechModel;
+      const inputHash = contentHash(JSON.stringify({ narration: scene.narration, voice, model, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary }));
       const cached = await prisma.narration.findFirst({ where: { inputHash }, include: { asset: true } });
       const narration = cached
         ? await prisma.narration.create({ data: { sceneId: scene.id, assetId: cached.assetId, provider: cached.provider, voiceId: cached.voiceId, inputHash, timings: cached.timings ?? undefined } })
         : await (async () => {
             await assertWithinBudget(payload.projectId);
-            const speech = await getSpeechProvider().synthesize(scene.narration);
+            const speech = await getSpeechProvider().synthesize(scene.narration, { model, voice, speed: settings.speechSpeed, pronunciationDictionary: settings.pronunciationDictionary });
             const asset = await uploadAndCreateAsset({ body: speech.audio, kind: "NARRATION", mimeType: speech.mimeType, filename: `scene-${scene.position}.${speech.format}`, projectId: payload.projectId });
             const timings = wordTimings(scene.narration, asset.durationMs ?? scene.durationMs);
             const created = await prisma.narration.create({ data: { sceneId: scene.id, assetId: asset.id, provider: speech.provider, voiceId: speech.voiceId, inputHash, timings } });
@@ -67,7 +68,8 @@ export const narrationPipeline = schemaTask({
       const results = [];
       for (const [index, scene] of script.scenes.entries()) {
         metadata.set("scene", index + 1);
-        const configHash = contentHash(JSON.stringify({ narration: scene.narration, model: process.env.AI_SPEECH_MODEL, voice: process.env.TTS_VOICE, speed: process.env.TTS_SPEED ?? "1", dictionary: process.env.PRONUNCIATION_DICTIONARY ?? "{}" }));
+        const settings = await getProductionSettings();
+        const configHash = contentHash(JSON.stringify({ narration: scene.narration, model: settings.speechModel, voice: settings.narratorVoice, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary }));
         results.push(await generateSceneNarration.triggerAndWait({ ...payload, sceneId: scene.id, position: index + 1 }, { idempotencyKey: `narration:${scene.id}:${configHash}` }).unwrap());
       }
       await prisma.$transaction([

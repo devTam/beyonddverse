@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getProductionSettings } from "@/lib/settings";
 
 export async function getDashboardData() {
   const [chapters, completed, active, pendingScripts, pendingVideos, scheduled, failed, costs, recent, recentPublished, snapshots] = await prisma.$transaction([
@@ -33,6 +34,7 @@ export async function getDashboardData() {
 }
 
 export async function getChapterProject(projectId?: string, workflowId?: string, scriptId?: string) {
+  const { bibleTranslationCode } = await getProductionSettings();
   let resolvedId = projectId;
   if (!resolvedId && workflowId) resolvedId = (await prisma.workflowRun.findUnique({ where: { id: workflowId }, select: { projectId: true } }))?.projectId;
   if (!resolvedId && scriptId) resolvedId = (await prisma.script.findUnique({ where: { id: scriptId }, select: { contentPackage: { select: { projectId: true } } } }))?.contentPackage.projectId;
@@ -42,7 +44,7 @@ export async function getChapterProject(projectId?: string, workflowId?: string,
       chapter: {
         include: {
           book: true,
-          verses: { include: { translation: true }, orderBy: { number: "asc" } },
+          verses: { where: { translation: { code: bibleTranslationCode } }, include: { translation: true }, orderBy: { number: "asc" } },
         },
       },
       explanations: { orderBy: { revision: "desc" } },

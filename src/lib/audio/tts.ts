@@ -12,8 +12,9 @@ const SpeechEnvironment = z.object({
 
 export type SpeechOutput = { audio: Buffer; mimeType: string; format: string; provider: string; voiceId: string };
 
+export type SpeechOptions = { model?: string; voice?: string; speed?: number; pronunciationDictionary?: Record<string, string> };
 export interface SpeechProvider {
-  synthesize(text: string): Promise<SpeechOutput>;
+  synthesize(text: string, options?: SpeechOptions): Promise<SpeechOutput>;
 }
 
 function pronunciationInstructions(serialized: string) {
@@ -24,16 +25,20 @@ function pronunciationInstructions(serialized: string) {
 }
 
 export class AiGatewaySpeechProvider implements SpeechProvider {
-  async synthesize(text: string) {
+  async synthesize(text: string, options?: SpeechOptions) {
     const env = SpeechEnvironment.parse(process.env);
+    const model = options?.model ?? env.AI_SPEECH_MODEL;
+    const voice = options?.voice ?? env.TTS_VOICE;
+    const speed = options?.speed ?? env.TTS_SPEED;
+    const dictionary = options?.pronunciationDictionary ? JSON.stringify(options.pronunciationDictionary) : env.PRONUNCIATION_DICTIONARY;
     const result = await generateSpeech({
-      model: gateway.speech(env.AI_SPEECH_MODEL),
+      model: gateway.speech(model),
       text,
-      voice: env.TTS_VOICE,
-      speed: env.TTS_SPEED,
+      voice,
+      speed,
       outputFormat: "mp3",
       language: "en",
-      instructions: pronunciationInstructions(env.PRONUNCIATION_DICTIONARY),
+      instructions: pronunciationInstructions(dictionary),
       maxRetries: 2,
       telemetry: { isEnabled: true, functionId: "scene-narration", recordInputs: false, recordOutputs: false },
     });
@@ -42,7 +47,7 @@ export class AiGatewaySpeechProvider implements SpeechProvider {
       mimeType: result.audio.mediaType || "audio/mpeg",
       format: result.audio.format,
       provider: "ai-gateway",
-      voiceId: env.TTS_VOICE,
+      voiceId: voice,
     };
   }
 }

@@ -3,6 +3,7 @@ import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { assertWithinBudget, recordGenerationCost, tokenCostMicros } from "../src/lib/costs";
 import { prisma } from "../src/lib/prisma";
+import { getProductionSettings } from "../src/lib/settings";
 
 const Input = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), scriptId: z.string().uuid(), field: z.enum(["hook", "body"]) });
 export const regenerateScriptSection = schemaTask({
@@ -12,8 +13,8 @@ export const regenerateScriptSection = schemaTask({
     await prisma.$transaction([prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "RUNNING", startedAt: new Date() } }), prisma.workflowStep.update({ where: step, data: { status: "RUNNING", attempts: { increment: 1 }, startedAt: new Date() } })]);
     try {
       await assertWithinBudget(payload.projectId);
-      const model = process.env.AI_GATEWAY_MODEL; if (!model) throw new Error("AI_GATEWAY_MODEL is required.");
-      const script = await prisma.script.findUniqueOrThrow({ where: { id: payload.scriptId }, include: { scenes: { orderBy: { position: "asc" } }, contentPackage: { include: { explanation: true, project: { include: { chapter: { include: { book: true, verses: { orderBy: { number: "asc" } } } } } } } } } });
+      const { textModel: model, bibleTranslationCode } = await getProductionSettings();
+      const script = await prisma.script.findUniqueOrThrow({ where: { id: payload.scriptId }, include: { scenes: { orderBy: { position: "asc" } }, contentPackage: { include: { explanation: true, project: { include: { chapter: { include: { book: true, verses: { where: { translation: { code: bibleTranslationCode } }, orderBy: { number: "asc" } } } } } } } } } });
       const newest = await prisma.script.findFirst({ where: { contentPackageId: script.contentPackageId, kind: script.kind }, orderBy: { revision: "desc" } });
       if (newest?.id !== script.id) throw new Error("Only the latest script revision can be regenerated.");
       const scripture = script.contentPackage.project.chapter.verses.map((verse) => `${verse.number}. ${verse.text}`).join("\n");

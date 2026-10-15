@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createSignedDeliveryUrl } from "../src/lib/storage/cloudinary";
 import { prisma } from "../src/lib/prisma";
 import { assertWithinBudget, configuredRate, recordGenerationCost } from "../src/lib/costs";
+import { getProductionSettings } from "../src/lib/settings";
 
 const TranscriptionInput = z.object({
   workflowRunId: z.string().uuid(),
@@ -17,8 +18,7 @@ export const transcribeExplanation = schemaTask({
   retry: { maxAttempts: 4, factor: 2, minTimeoutInMs: 2_000, maxTimeoutInMs: 60_000, randomize: true },
   maxDuration: 900,
   run: async (payload, { ctx }) => {
-    const model = process.env.AI_TRANSCRIPTION_MODEL;
-    if (!model) throw new Error("AI_TRANSCRIPTION_MODEL is required for audio transcription.");
+    const { transcriptionModel: model } = await getProductionSettings();
     await prisma.$transaction([
       prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "RUNNING", startedAt: new Date() } }),
       prisma.workflowStep.update({ where: { runId_position: { runId: payload.workflowRunId, position: 1 } }, data: { status: "RUNNING", attempts: { increment: 1 }, startedAt: new Date() } }),

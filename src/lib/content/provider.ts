@@ -60,8 +60,8 @@ export class DevelopmentContentProvider implements ContentProvider {
 
 export class AiGatewayContentProvider implements ContentProvider {
   async generate(input: { reference: string; scripture: string; explanation: string }, onUsage?: (usage: { provider: string; model: string; inputTokens: number; outputTokens: number }) => Promise<void>) {
-    const model = process.env.AI_GATEWAY_MODEL;
-    if (!model) throw new Error("AI_GATEWAY_MODEL is required when CONTENT_PROVIDER=ai-gateway.");
+    const { getProductionSettings } = await import("../settings");
+    const { textModel: model } = await getProductionSettings();
 
     const result = await generateText({
       model,

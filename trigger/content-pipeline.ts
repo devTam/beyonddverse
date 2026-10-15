@@ -5,6 +5,7 @@ import { getContentProvider } from "../src/lib/content/provider";
 import { GeneratedPackageSchema } from "../src/lib/content/schema";
 import { prisma } from "../src/lib/prisma";
 import { assertWithinBudget, recordGenerationCost, tokenCostMicros } from "../src/lib/costs";
+import { getProductionSettings } from "../src/lib/settings";
 
 const contentQueue = queue({ name: "content-generation", concurrencyLimit: 3 });
 const PipelineInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), explanationId: z.string().uuid() });
@@ -38,10 +39,11 @@ export const prepareScriptureContext = schemaTask({
   run: async (payload) => {
     await startStep(payload.workflowRunId, 1);
     try {
+      const { bibleTranslationCode } = await getProductionSettings();
       const [project, explanation] = await Promise.all([
         prisma.chapterProject.findUniqueOrThrow({
           where: { id: payload.projectId },
-          include: { chapter: { include: { book: true, verses: { orderBy: { number: "asc" } } } } },
+          include: { chapter: { include: { book: true, verses: { where: { translation: { code: bibleTranslationCode } }, orderBy: { number: "asc" } } } } },
         }),
         prisma.explanation.findUniqueOrThrow({ where: { id: payload.explanationId } }),
       ]);

@@ -10,6 +10,7 @@ import { requireUser } from "@/lib/auth";
 import { contentHash } from "@/lib/content/provider";
 import { publisherFor } from "@/lib/publishing";
 import { decryptSecret } from "@/lib/security/encryption";
+import { assertWorkflowCapacity, getProductionSettings, ProductionSettingsSchema, PRODUCTION_SETTINGS_KEY } from "@/lib/settings";
 import type { contentPipeline } from "../../trigger/content-pipeline";
 import type { narrationPipeline } from "../../trigger/narration";
 import type { visualPipeline } from "../../trigger/visuals";
@@ -103,6 +104,24 @@ export async function selectBackgroundMusic(formData: FormData) {
   revalidatePath("/settings");
 }
 
+export async function updateProductionSettings(formData: FormData) {
+  const session = await requireUser(await headers());
+  const dictionaryText = z.string().max(20_000).parse(formData.get("pronunciationDictionary"));
+  let pronunciationDictionary: unknown;
+  try { pronunciationDictionary = JSON.parse(dictionaryText || "{}"); } catch { throw new Error("Pronunciation dictionary must be valid JSON."); }
+  const optional = (name: string) => { const value = z.string().trim().parse(formData.get(name)); return value || null; };
+  const settings = ProductionSettingsSchema.parse({
+    brandName: formData.get("brandName"), brandAssetId: optional("brandAssetId"), headingFont: formData.get("headingFont"), bodyFont: formData.get("bodyFont"), primaryColor: formData.get("primaryColor"), accentColor: formData.get("accentColor"), narratorVoice: formData.get("narratorVoice"), speechSpeed: Number(formData.get("speechSpeed")), pronunciationDictionary,
+    textModel: formData.get("textModel"), transcriptionModel: formData.get("transcriptionModel"), speechModel: formData.get("speechModel"), imageModel: formData.get("imageModel"), bibleTranslationCode: formData.get("bibleTranslationCode"), youtubePrivacy: formData.get("youtubePrivacy"), monthlyBudgetUsd: Number(formData.get("monthlyBudgetUsd")), generationLimit: Number(formData.get("generationLimit")), concurrencyLimit: Number(formData.get("concurrencyLimit")), videoQuality: formData.get("videoQuality"), errorNotificationEmail: optional("errorNotificationEmail"),
+  });
+  const existing = await prisma.workspaceSetting.findUnique({ where: { key: PRODUCTION_SETTINGS_KEY } });
+  await prisma.$transaction([
+    prisma.workspaceSetting.upsert({ where: { key: PRODUCTION_SETTINGS_KEY }, create: { key: PRODUCTION_SETTINGS_KEY, value: settings }, update: { value: settings } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: "PRODUCTION_SETTINGS_UPDATED", entityType: "WorkspaceSetting", entityId: PRODUCTION_SETTINGS_KEY, before: existing?.value ?? undefined, after: settings } }),
+  ]);
+  revalidatePath("/settings");
+}
+
 export async function generateContentThumbnail(formData: FormData) {
   await requireUser(await headers());
   const scriptId = z.string().uuid().parse(formData.get("scriptId"));
@@ -111,6 +130,7 @@ export async function generateContentThumbnail(formData: FormData) {
   const idempotencyKey = `thumbnail:${script.contentPackageId}:${script.revision}`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  await assertWorkflowCapacity();
   const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "THUMBNAIL", idempotencyKey, input: { contentPackageId: script.contentPackageId }, steps: { create: { position: 1, name: "Generate thumbnail" } } } });
   const handle = await tasks.trigger<typeof generateThumbnail>("generate-content-thumbnail", { workflowRunId: run.id, projectId: script.contentPackage.projectId, contentPackageId: script.contentPackageId }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `package:${script.contentPackageId}`] });
   await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
@@ -124,6 +144,7 @@ export async function regenerateSection(formData: FormData) {
   const idempotencyKey = `regenerate:${script.id}:${input.field}`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  await assertWorkflowCapacity();
   const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "SECTION_REGENERATION", idempotencyKey, input, steps: { create: { position: 1, name: `Regenerate ${input.field}` } } } });
   const handle = await tasks.trigger<typeof regenerateScriptSection>("regenerate-script-section", { workflowRunId: run.id, projectId: script.contentPackage.projectId, ...input }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `script:${script.id}`] });
   await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
@@ -142,6 +163,7 @@ export async function generateContent(formData: FormData) {
   if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) {
     redirect(`/studio/genesis-1?workflow=${existing.id}`);
   }
+  await assertWorkflowCapacity();
   const idempotencyKey = existing ? `${baseKey}:retry:${Date.now()}` : baseKey;
   const run = await prisma.workflowRun.create({
     data: {
@@ -264,10 +286,12 @@ export async function generateNarration(formData: FormData) {
   const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" } }, contentPackage: true } });
   if (script.status !== "APPROVED") throw new Error("Approve the script before generating narration.");
   if (!script.scenes.length) throw new Error("The script has no scenes to narrate.");
-  const narrationConfigHash = contentHash(JSON.stringify({ model: process.env.AI_SPEECH_MODEL, voice: process.env.TTS_VOICE, speed: process.env.TTS_SPEED ?? "1", dictionary: process.env.PRONUNCIATION_DICTIONARY ?? "{}" })).slice(0, 16);
+  const settings = await getProductionSettings();
+  const narrationConfigHash = contentHash(JSON.stringify({ model: settings.speechModel, voice: settings.narratorVoice, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary })).slice(0, 16);
   const baseKey = `narration:${script.id}:${narrationConfigHash}`;
   const existing = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey } }, orderBy: { startedAt: "desc" } });
   if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  await assertWorkflowCapacity();
   const idempotencyKey = existing ? `${baseKey}:retry:${Date.now()}` : baseKey;
   const run = await prisma.workflowRun.create({ data: {
     projectId: script.contentPackage.projectId,
@@ -294,10 +318,12 @@ export async function generateVisuals(formData: FormData) {
   const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" }, include: { narrations: true } }, contentPackage: true } });
   if (script.status !== "APPROVED") throw new Error("Approve the script before generating visuals.");
   if (script.scenes.some((scene) => !scene.narrations.length)) throw new Error("Generate narration for every scene before visuals.");
-  const visualConfigHash = contentHash(JSON.stringify({ model: process.env.AI_IMAGE_MODEL, brand: "beyond-the-verse-v1" })).slice(0, 16);
+  const settings = await getProductionSettings();
+  const visualConfigHash = contentHash(JSON.stringify({ model: settings.imageModel, brand: settings.brandName, colors: [settings.primaryColor, settings.accentColor] })).slice(0, 16);
   const baseKey = `visuals:${script.id}:${visualConfigHash}`;
   const existing = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey } }, orderBy: { startedAt: "desc" } });
   if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  await assertWorkflowCapacity();
   const idempotencyKey = existing ? `${baseKey}:retry:${Date.now()}` : baseKey;
   const run = await prisma.workflowRun.create({ data: {
     projectId: script.contentPackage.projectId, type: "VISUAL_GENERATION", status: "QUEUED", idempotencyKey, input: { scriptId: script.id },
@@ -323,6 +349,7 @@ export async function renderLongVideo(formData: FormData) {
   const idempotencyKey = `render:long:${script.id}:v1`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  await assertWorkflowCapacity();
   const render = await prisma.videoRender.create({ data: { format: "16:9", composition: "YouTubeLong", status: "QUEUED", input: { scriptId: script.id } } });
   const longCopy = (script.contentPackage.socialCopy as Record<string, unknown>).youtube ?? null;
   await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "YOUTUBE", kind: "LONG_FORM_MASTER" } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "YOUTUBE", kind: "LONG_FORM_MASTER", metadata: { aspectRatio: "16:9", scriptId: script.id, title: script.title, copy: longCopy } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "16:9", scriptId: script.id, title: script.title, copy: longCopy } } });
@@ -351,6 +378,7 @@ export async function renderShortVideo(formData: FormData) {
   const idempotencyKey = `render:short:${script.id}:v1`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  await assertWorkflowCapacity();
   const render = await prisma.videoRender.create({ data: { format: "9:16", composition: "YouTubeShort", status: "QUEUED", input: { scriptId: script.id } } });
   await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "MASTER", kind: script.kind } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "MASTER", kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id } } });
   const socialCopy = script.contentPackage.socialCopy as Record<string, unknown>;

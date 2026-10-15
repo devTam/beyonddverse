@@ -8,6 +8,7 @@ import type { VideoInput } from "../../../packages/video/src/types";
 import { createSignedDeliveryUrl, uploadAndCreateAsset } from "../../../src/lib/storage/cloudinary";
 import { prisma } from "../../../src/lib/prisma";
 import { probeMedia } from "./ffmpeg";
+import { getProductionSettings } from "../../../src/lib/settings";
 
 let bundlePromise: Promise<string> | undefined;
 function getBundle() {
@@ -18,9 +19,10 @@ function getBundle() {
 type RenderInput = { scriptId: string };
 
 async function buildProps(scriptId: string): Promise<VideoInput> {
-  const [script, musicSetting] = await Promise.all([
+  const [script, musicSetting, settings] = await Promise.all([
     prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" }, include: { narrations: { orderBy: { createdAt: "desc" }, take: 1, include: { asset: true } }, assetUsages: { where: { role: "PRIMARY_VISUAL" }, take: 1, include: { asset: true } } } } } }),
     prisma.workspaceSetting.findUnique({ where: { key: "backgroundMusicAssetId" } }),
+    getProductionSettings(),
   ]);
   if (script.status !== "APPROVED") throw new Error("Rendering requires an approved script.");
   const scenes = script.scenes.map((scene) => {
@@ -33,8 +35,9 @@ async function buildProps(scriptId: string): Promise<VideoInput> {
   });
   const musicAssetId = typeof musicSetting?.value === "string" ? musicSetting.value : undefined;
   const musicAsset = musicAssetId ? await prisma.asset.findUnique({ where: { id: musicAssetId } }) : null;
+  const brandAsset = settings.brandAssetId ? await prisma.asset.findUnique({ where: { id: settings.brandAssetId } }) : null;
   if (musicAsset && (musicAsset.kind !== "MUSIC" || musicAsset.status !== "APPROVED")) throw new Error("Configured background music must be an approved MUSIC asset.");
-  return { title: script.title, hook: script.hook, brandName: "Beyond the Verse", backgroundMusicUrl: musicAsset ? createSignedDeliveryUrl(musicAsset) : undefined, fps: 30, scenes };
+  return { title: script.title, hook: script.hook, brandName: settings.brandName, brandAssetUrl: brandAsset ? createSignedDeliveryUrl(brandAsset) : undefined, headingFont: settings.headingFont, bodyFont: settings.bodyFont, primaryColor: settings.primaryColor, accentColor: settings.accentColor, backgroundMusicUrl: musicAsset ? createSignedDeliveryUrl(musicAsset) : undefined, fps: 30, scenes };
 }
 
 export async function executeRender(renderId: string) {
@@ -47,7 +50,9 @@ export async function executeRender(renderId: string) {
     const [serveUrl, inputProps] = await Promise.all([getBundle(), buildProps(input.scriptId)]);
     const composition = await selectComposition({ serveUrl, id: render.composition, inputProps });
     const output = join(directory, `${render.id}.mp4`);
-    await renderMedia({ composition, serveUrl, codec: "h264", outputLocation: output, inputProps, imageFormat: "jpeg", chromiumOptions: { disableWebSecurity: false }, concurrency: 1 });
+    const settings = await getProductionSettings();
+    const quality = settings.videoQuality === "production" ? { crf: 14, jpegQuality: 100 } : settings.videoQuality === "high" ? { crf: 18, jpegQuality: 95 } : { crf: 23, jpegQuality: 85 };
+    await renderMedia({ composition, serveUrl, codec: "h264", outputLocation: output, inputProps, imageFormat: "jpeg", ...quality, chromiumOptions: { disableWebSecurity: false }, concurrency: Math.min(settings.concurrencyLimit, 4) });
     const inspected = await probeMedia(output);
     if (!inspected.streams.some((stream) => stream.codec_type === "video") || !inspected.streams.some((stream) => stream.codec_type === "audio")) throw new Error("Rendered output must contain video and audio streams.");
     const asset = await uploadAndCreateAsset({ body: await readFile(output), kind: "VIDEO", mimeType: "video/mp4", filename: `${render.composition}-${render.id}.mp4` });

@@ -48,7 +48,7 @@ export class YouTubePublisher implements Publisher {
   }
   async publish(media: PublishMedia, accessToken: string) {
     this.validate(media);
-    const privacyStatus = media.scheduledAt ? "private" : (process.env.YOUTUBE_DEFAULT_PRIVACY ?? "unlisted");
+    const privacyStatus = media.scheduledAt ? "private" : (media.privacyStatus ?? "unlisted");
     const metadata = { snippet: { title: media.title, description: media.description, categoryId: "27" }, status: { privacyStatus, selfDeclaredMadeForKids: false, ...(media.scheduledAt ? { publishAt: media.scheduledAt.toISOString() } : {}) } };
     const start = await fetch("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status", { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json; charset=UTF-8", "x-upload-content-type": media.mimeType, "x-upload-content-length": String(media.bytes) }, body: JSON.stringify(metadata), signal: AbortSignal.timeout(60_000) });
     if (!start.ok) throw new Error(`YouTube upload initialization failed (${start.status}): ${(await start.text()).slice(0, 500)}`);

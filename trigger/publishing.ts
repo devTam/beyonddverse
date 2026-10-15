@@ -5,6 +5,7 @@ import { createSignedDeliveryUrl } from "../src/lib/storage/cloudinary";
 import { decryptSecret, encryptSecret } from "../src/lib/security/encryption";
 import { oauthProvider, publisherFor, type SupportedProvider } from "../src/lib/publishing";
 import type { Prisma } from "@prisma/client";
+import { getProductionSettings } from "../src/lib/settings";
 
 const PublishInput = z.object({ workflowRunId: z.string().uuid(), scheduledPostId: z.string().uuid() });
 const PublishedInput = z.object({ publishedPostId: z.string().uuid() });
@@ -42,6 +43,7 @@ export const publishScheduledPost = schemaTask({
         await prisma.socialAccount.update({ where: { id: post.socialAccount.id }, data: { encryptedToken: encryptSecret(accessToken), encryptedRefreshToken: refreshed.refreshToken ? encryptSecret(refreshed.refreshToken) : undefined, tokenExpiresAt: refreshed.expiresAt } });
       }
       const metadata = post.variant.metadata as Record<string, unknown>;
+      const settings = await getProductionSettings();
       const copy = (metadata.copy ?? {}) as Record<string, unknown>;
       const asset = post.variant.videoRender.asset;
       const thumbnail = post.socialAccount.platform === "YOUTUBE" ? await prisma.asset.findFirst({ where: { projectId: post.projectId, kind: "THUMBNAIL", status: "APPROVED" }, orderBy: { createdAt: "desc" } }) : null;
@@ -50,6 +52,7 @@ export const publishScheduledPost = schemaTask({
         title: String(copy.title ?? metadata.title ?? "Beyond the Verse"),
         description: String(copy.caption ?? metadata.description ?? "Beyond the Verse Bible teaching"),
         posts: Array.isArray(copy.posts) ? copy.posts.filter((value): value is string => typeof value === "string") : undefined,
+        privacyStatus: settings.youtubePrivacy,
         scheduledAt: post.scheduledAt > new Date() ? post.scheduledAt : undefined,
         thumbnailUrl: thumbnail ? createSignedDeliveryUrl(thumbnail) : undefined,
         thumbnailMimeType: thumbnail?.mimeType,

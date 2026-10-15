@@ -5,6 +5,7 @@ import { assertWithinBudget, configuredRate } from "../src/lib/costs";
 import { getImageProvider } from "../src/lib/visuals/image-provider";
 import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
 import { prisma } from "../src/lib/prisma";
+import { getProductionSettings } from "../src/lib/settings";
 
 const Input = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), contentPackageId: z.string().uuid() });
 export const generateThumbnail = schemaTask({
@@ -15,9 +16,10 @@ export const generateThumbnail = schemaTask({
     try {
       await assertWithinBudget(payload.projectId);
       const content = await prisma.contentPackage.findUniqueOrThrow({ where: { id: payload.contentPackageId } });
+      const settings = await getProductionSettings();
       const metadata = content.metadata as Record<string, unknown>;
       const prompt = String(metadata.thumbnailConcept ?? "Premium editorial Bible teaching thumbnail with dramatic warm gold light and generous negative space");
-      const visual = await getImageProvider().generate(`${prompt}. Create a high-contrast YouTube thumbnail background with no embedded text.`);
+      const visual = await getImageProvider().generate(`${prompt}. Create a high-contrast YouTube thumbnail background with no embedded text. Brand: ${settings.brandName}. Palette: ${settings.primaryColor}, ${settings.accentColor}.`, settings.imageModel);
       const asset = await uploadAndCreateAsset({ body: visual.body, kind: "THUMBNAIL", mimeType: visual.mimeType, filename: `thumbnail-${content.id}.${visual.format}`, projectId: payload.projectId });
       const storage = (asset.providerMetadata ?? {}) as Prisma.JsonObject;
       await prisma.$transaction([

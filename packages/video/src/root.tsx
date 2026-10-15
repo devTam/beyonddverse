@@ -2,7 +2,7 @@ import { Composition } from "remotion";
 import { TeachingVideo } from "./composition";
 import { VideoInputSchema, type VideoInput } from "./types";
 
-const defaults: VideoInput = { title: "Beyond the Verse", hook: "Chapter by chapter", brandName: "Beyond the Verse", fps: 30, scenes: [{ id: "preview", narration: "Preview narration", narrationUrl: "https://example.com/audio.mp3", visualUrl: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee", scriptureRef: null, durationInFrames: 150 }] };
+const defaults: VideoInput = { title: "Beyond the Verse", hook: "Chapter by chapter", brandName: "Beyond the Verse", headingFont: "Georgia", bodyFont: "Inter", primaryColor: "#16231c", accentColor: "#d6a04d", fps: 30, scenes: [{ id: "preview", narration: "Preview narration", narrationUrl: "https://example.com/audio.mp3", visualUrl: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee", scriptureRef: null, durationInFrames: 150 }] };
 const duration = ({ props }: { props: VideoInput }) => ({ durationInFrames: props.scenes.reduce((total, scene) => total + scene.durationInFrames, 0), props });
 
 export function VideoRoot() {

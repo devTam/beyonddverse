@@ -6,6 +6,7 @@ import { getImageProvider } from "../src/lib/visuals/image-provider";
 import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
 import { prisma } from "../src/lib/prisma";
 import { assertWithinBudget, configuredRate, recordGenerationCost } from "../src/lib/costs";
+import { getProductionSettings } from "../src/lib/settings";
 
 const visualQueue = queue({ name: "scene-visual-generation", concurrencyLimit: 2 });
 const SceneInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), sceneId: z.string().uuid(), position: z.number().int().positive() });
@@ -23,13 +24,13 @@ export const generateSceneVisual = schemaTask({
     try {
       const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: payload.sceneId }, include: { script: true } });
       if (scene.script.status !== "APPROVED") throw new Error("Visual generation requires an approved script.");
-      const model = process.env.AI_IMAGE_MODEL;
-      if (!model) throw new Error("AI_IMAGE_MODEL is required.");
-      const inputHash = contentHash(JSON.stringify({ prompt: scene.visualPrompt, model, aspectRatio: "16:9", brand: "beyond-the-verse-v1" }));
+      const settings = await getProductionSettings();
+      const model = settings.imageModel;
+      const inputHash = contentHash(JSON.stringify({ prompt: scene.visualPrompt, model, aspectRatio: "16:9", brand: settings.brandName, colors: [settings.primaryColor, settings.accentColor] }));
       const cached = await prisma.asset.findFirst({ where: { kind: "IMAGE", providerMetadata: { path: ["generation", "inputHash"], equals: inputHash } } });
       const asset = cached ?? await (async () => {
         await assertWithinBudget(payload.projectId);
-        const visual = await getImageProvider().generate(scene.visualPrompt);
+        const visual = await getImageProvider().generate(`${scene.visualPrompt}\nBrand: ${settings.brandName}. Palette: ${settings.primaryColor}, ${settings.accentColor}.`, model);
         const created = await uploadAndCreateAsset({ body: visual.body, kind: "IMAGE", mimeType: visual.mimeType, filename: `scene-${scene.position}.${visual.format}`, projectId: payload.projectId });
         const storage = (created.providerMetadata ?? {}) as Prisma.JsonObject;
         const updated = await prisma.asset.update({ where: { id: created.id }, data: { providerMetadata: { ...storage, generation: { inputHash, prompt: scene.visualPrompt, provider: visual.provider, model: visual.model, aspectRatio: "16:9" } } } });
@@ -59,7 +60,8 @@ export const visualPipeline = schemaTask({
       const results = [];
       for (const [index, scene] of script.scenes.entries()) {
         metadata.set("scene", index + 1);
-        const configHash = contentHash(JSON.stringify({ prompt: scene.visualPrompt, model: process.env.AI_IMAGE_MODEL, brand: "beyond-the-verse-v1" }));
+        const settings = await getProductionSettings();
+        const configHash = contentHash(JSON.stringify({ prompt: scene.visualPrompt, model: settings.imageModel, brand: settings.brandName, colors: [settings.primaryColor, settings.accentColor] }));
         results.push(await generateSceneVisual.triggerAndWait({ ...payload, sceneId: scene.id, position: index + 1 }, { idempotencyKey: `visual:${scene.id}:${configHash}` }).unwrap());
       }
       await prisma.$transaction([
