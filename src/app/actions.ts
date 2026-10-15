@@ -15,6 +15,7 @@ import type { renderLongFormVideo } from "../../trigger/rendering";
 import type { renderShortFormVideo } from "../../trigger/rendering";
 import type { publishScheduledPost } from "../../trigger/publishing";
 import type { generateThumbnail } from "../../trigger/thumbnails";
+import type { regenerateScriptSection } from "../../trigger/regeneration";
 
 const ExplanationInput = z.object({
   projectId: z.string().uuid(),
@@ -35,6 +36,14 @@ const SceneRevisionInput = z.object({
   scriptureRef: z.string().trim().max(120).nullable(),
   durationMs: z.number().int().min(1_000).max(300_000),
 });
+
+export async function openChapterProject(formData: FormData) {
+  await requireUser(await headers());
+  const chapterId = z.string().uuid().parse(formData.get("chapterId"));
+  const chapter = await prisma.bibleChapter.findUniqueOrThrow({ where: { id: chapterId }, include: { book: true, projects: { take: 1, orderBy: { updatedAt: "desc" } } } });
+  const project = chapter.projects[0] ?? await prisma.chapterProject.create({ data: { chapterId: chapter.id, title: `${chapter.book.name} ${chapter.number} teaching` } });
+  redirect(`/studio/genesis-1?project=${project.id}`);
+}
 
 export async function saveExplanation(formData: FormData) {
   const session = await requireUser(await headers());
@@ -89,6 +98,19 @@ export async function generateContentThumbnail(formData: FormData) {
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
   const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "THUMBNAIL", idempotencyKey, input: { contentPackageId: script.contentPackageId }, steps: { create: { position: 1, name: "Generate thumbnail" } } } });
   const handle = await tasks.trigger<typeof generateThumbnail>("generate-content-thumbnail", { workflowRunId: run.id, projectId: script.contentPackage.projectId, contentPackageId: script.contentPackageId }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `package:${script.contentPackageId}`] });
+  await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
+  redirect(`/studio/genesis-1?workflow=${run.id}`);
+}
+
+export async function regenerateSection(formData: FormData) {
+  await requireUser(await headers());
+  const input = z.object({ scriptId: z.string().uuid(), field: z.enum(["hook", "body"]) }).parse(Object.fromEntries(formData));
+  const script = await prisma.script.findUniqueOrThrow({ where: { id: input.scriptId }, include: { contentPackage: true } });
+  const idempotencyKey = `regenerate:${script.id}:${input.field}`;
+  const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
+  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "SECTION_REGENERATION", idempotencyKey, input, steps: { create: { position: 1, name: `Regenerate ${input.field}` } } } });
+  const handle = await tasks.trigger<typeof regenerateScriptSection>("regenerate-script-section", { workflowRunId: run.id, projectId: script.contentPackage.projectId, ...input }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `script:${script.id}`] });
   await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
   redirect(`/studio/genesis-1?workflow=${run.id}`);
 }

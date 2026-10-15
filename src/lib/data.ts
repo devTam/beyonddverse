@@ -18,9 +18,12 @@ export async function getDashboardData() {
   return { chapters, completed, active, pendingScripts, scheduled, failed, costs: costs._sum.amountMicros ?? 0n, recent };
 }
 
-export async function getGenesisProject() {
+export async function getChapterProject(projectId?: string, workflowId?: string, scriptId?: string) {
+  let resolvedId = projectId;
+  if (!resolvedId && workflowId) resolvedId = (await prisma.workflowRun.findUnique({ where: { id: workflowId }, select: { projectId: true } }))?.projectId;
+  if (!resolvedId && scriptId) resolvedId = (await prisma.script.findUnique({ where: { id: scriptId }, select: { contentPackage: { select: { projectId: true } } } }))?.contentPackage.projectId;
   return prisma.chapterProject.findFirstOrThrow({
-    where: { chapter: { book: { slug: "genesis" }, number: 1 } },
+    where: resolvedId ? { id: resolvedId } : { chapter: { book: { slug: "genesis" }, number: 1 } },
     include: {
       chapter: {
         include: {
@@ -46,3 +49,5 @@ export async function getGenesisProject() {
     },
   });
 }
+
+export const getGenesisProject = () => getChapterProject();

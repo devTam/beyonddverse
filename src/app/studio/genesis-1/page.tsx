@@ -5,15 +5,15 @@ import { ScriptReview } from "@/components/script-review";
 import { StatusPill } from "@/components/status-pill";
 import { WorkflowStatus } from "@/components/workflow-status";
 import { ShortsReview } from "@/components/shorts-review";
-import { getGenesisProject } from "@/lib/data";
+import { getChapterProject } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 const stages = ["Source", "Explanation", "Script", "Narration", "Visuals", "Publish"];
 
-export default async function GenesisStudio({ searchParams }: { searchParams: Promise<{ workflow?: string; script?: string }> }) {
-  const { workflow, script: requestedScriptId } = await searchParams;
-  const project = await getGenesisProject();
+export default async function GenesisStudio({ searchParams }: { searchParams: Promise<{ workflow?: string; script?: string; project?: string }> }) {
+  const { workflow, script: requestedScriptId, project: requestedProjectId } = await searchParams;
+  const project = await getChapterProject(requestedProjectId, workflow, requestedScriptId);
   const explanation = project.explanations[0];
   const contentPackage = project.contentPackages[0];
   const revisions = contentPackage?.scripts.filter((item) => item.kind === "LONG_FORM") ?? [];

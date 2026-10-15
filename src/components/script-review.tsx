@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Check, GitCompareArrows, RotateCcw, Save, ShieldCheck, X } from "lucide-react";
-import { approveScript, generateContentThumbnail, generateNarration, generateVisuals, rejectScript, renderLongVideo, reopenScript, saveScriptRevision } from "@/app/actions";
+import { approveScript, generateContentThumbnail, generateNarration, generateVisuals, regenerateSection, rejectScript, renderLongVideo, reopenScript, saveScriptRevision } from "@/app/actions";
 import { StatusPill } from "@/components/status-pill";
 
 type Scene = {
@@ -35,6 +35,7 @@ export function ScriptReview({ script, revisions, validation, narrationReady, vi
       </fieldset>)}</div>
       {latest ? <div className="editor-save"><span>Saving creates a new immutable revision; this version is retained.</span><button className="button button-secondary"><Save size={15}/> Save as revision {script.revision + 1}</button></div> : null}
     </form>
+    {latest ? <div className="action-row"><form action={regenerateSection}><input type="hidden" name="scriptId" value={script.id}/><button className="button button-ghost" name="field" value="hook">Regenerate hook</button></form><form action={regenerateSection}><input type="hidden" name="scriptId" value={script.id}/><button className="button button-ghost" name="field" value="body">Regenerate body</button></form></div> : null}
     {latest ? <div className="approval-controls">
       {script.status !== "APPROVED" ? <form action={approveScript}><input type="hidden" name="scriptId" value={script.id}/><button className="button button-primary" disabled={!report?.valid}><Check size={16}/> Approve for production</button></form> : <form action={reopenScript}><input type="hidden" name="scriptId" value={script.id}/><button className="button button-ghost"><RotateCcw size={15}/> Reopen script</button></form>}
       {script.status !== "REJECTED" ? <form action={rejectScript} className="reject-form"><input type="hidden" name="scriptId" value={script.id}/><label className="sr-only" htmlFor={`rejection-${script.id}`}>Rejection reason</label><input id={`rejection-${script.id}`} name="note" required minLength={10} placeholder="Reason for rejection"/><button className="button button-ghost"><X size={15}/> Reject</button></form> : null}

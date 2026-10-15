@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -8,7 +9,7 @@ const bookNames: Record<string, string> = {
   GEN:"Genesis",EXO:"Exodus",LEV:"Leviticus",NUM:"Numbers",DEU:"Deuteronomy",JOS:"Joshua",JDG:"Judges",RUT:"Ruth", "1SA":"1 Samuel","2SA":"2 Samuel","1KI":"1 Kings","2KI":"2 Kings","1CH":"1 Chronicles","2CH":"2 Chronicles",EZR:"Ezra",NEH:"Nehemiah",EST:"Esther",JOB:"Job",PSA:"Psalms",PRO:"Proverbs",ECC:"Ecclesiastes",SNG:"Song of Solomon",ISA:"Isaiah",JER:"Jeremiah",LAM:"Lamentations",EZK:"Ezekiel",DAN:"Daniel",HOS:"Hosea",JOL:"Joel",AMO:"Amos",OBA:"Obadiah",JON:"Jonah",MIC:"Micah",NAM:"Nahum",HAB:"Habakkuk",ZEP:"Zephaniah",HAG:"Haggai",ZEC:"Zechariah",MAL:"Malachi",MAT:"Matthew",MRK:"Mark",LUK:"Luke",JHN:"John",ACT:"Acts",ROM:"Romans","1CO":"1 Corinthians","2CO":"2 Corinthians",GAL:"Galatians",EPH:"Ephesians",PHP:"Philippians",COL:"Colossians","1TH":"1 Thessalonians","2TH":"2 Thessalonians","1TI":"1 Timothy","2TI":"2 Timothy",TIT:"Titus",PHM:"Philemon",HEB:"Hebrews",JAS:"James","1PE":"1 Peter","2PE":"2 Peter","1JN":"1 John","2JN":"2 John","3JN":"3 John",JUD:"Jude",REV:"Revelation",
 };
 
-function cleanUsfm(value: string) {
+export function cleanUsfm(value: string) {
   return value
     .replace(/\\f\s[\s\S]*?\\f\*/g, "")
     .replace(/\\x\s[\s\S]*?\\x\*/g, "")
@@ -18,7 +19,7 @@ function cleanUsfm(value: string) {
     .trim();
 }
 
-function parseUsfm(source: string) {
+export function parseUsfm(source: string) {
   const id = source.match(/^\\id\s+([A-Z0-9]{3})/m)?.[1];
   if (!id || !bookNames[id]) return null;
   const verses: Array<{ chapter: number; number: number; text: string }> = [];
@@ -56,4 +57,4 @@ async function main() {
   process.stdout.write(`Imported ${imported} WEB verses across ${Object.keys(bookNames).length} books.\n`);
 }
 
-main().finally(() => prisma.$disconnect());
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().finally(() => prisma.$disconnect());
