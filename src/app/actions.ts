@@ -168,7 +168,7 @@ export async function regenerateSection(formData: FormData) {
 export async function generateContent(formData: FormData) {
   await requireUser(await headers());
   const projectId = z.string().uuid().parse(formData.get("projectId"));
-  if (!process.env.TRIGGER_SECRET_KEY) throw new Error("TRIGGER_SECRET_KEY is required to start content generation.");
+  if (!process.env.TRIGGER_SECRET_KEY) return { error: "Content automation is not connected. Add TRIGGER_SECRET_KEY to Vercel Production, then redeploy." };
   const explanation = await prisma.explanation.findFirst({ where: { projectId }, orderBy: { revision: "desc" } });
   if (!explanation) throw new Error("Save an explanation before generating content.");
 
@@ -202,8 +202,9 @@ export async function generateContent(formData: FormData) {
     );
     await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
   } catch (error) {
-    await prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unknown generation failure" } });
-    throw error;
+    const message = error instanceof Error ? error.message : "Unknown generation failure";
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", completedAt: new Date(), error: message } });
+    return { error: `Unable to start content generation: ${message}` };
   }
   redirect(`/studio/genesis-1?workflow=${run.id}`);
 }
