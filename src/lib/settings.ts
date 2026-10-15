@@ -1,5 +1,3 @@
-import "server-only";
-
 import { prisma } from "@/lib/prisma";
 import { ProductionSettingsSchema, PRODUCTION_SETTINGS_KEY, type ProductionSettings } from "@/lib/settings-schema";
 export { ProductionSettingsSchema, PRODUCTION_SETTINGS_KEY } from "@/lib/settings-schema";
