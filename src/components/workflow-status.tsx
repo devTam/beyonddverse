@@ -11,7 +11,7 @@ type Workflow = {
 
 const terminalStatuses = new Set(["SUCCEEDED", "FAILED", "CANCELED"]);
 
-export function WorkflowStatus({ workflowId }: { workflowId: string }) {
+export function WorkflowStatus({ workflowId, projectId }: { workflowId: string; projectId: string }) {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
 
@@ -27,7 +27,7 @@ export function WorkflowStatus({ workflowId }: { workflowId: string }) {
         setWorkflow(next);
         setRequestError(null);
         if (!terminalStatuses.has(next.status)) timer = setTimeout(refresh, 2_000);
-        else if (next.status === "SUCCEEDED") window.location.replace("/studio/genesis-1?generated=1");
+        else if (next.status === "SUCCEEDED") window.location.replace(`/studio/genesis-1?project=${projectId}`);
       } catch (error) {
         if (!active) return;
         setRequestError(error instanceof Error ? error.message : "Unable to retrieve workflow status.");
@@ -36,7 +36,7 @@ export function WorkflowStatus({ workflowId }: { workflowId: string }) {
     }
     void refresh();
     return () => { active = false; if (timer) clearTimeout(timer); };
-  }, [workflowId]);
+  }, [workflowId, projectId]);
 
   return <section className="workflow-banner" aria-live="polite">
     <div className="workflow-title">

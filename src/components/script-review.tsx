@@ -1,6 +1,7 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Check, GitCompareArrows, RotateCcw, Save, ShieldCheck, X } from "lucide-react";
-import { approveScript, generateContentThumbnail, generateNarration, generateVisuals, regenerateSceneNarration, regenerateSceneVisual, regenerateSection, rejectScript, renderLongVideo, reopenScript, saveScriptRevision } from "@/app/actions";
+import { approveScript, generateContentThumbnail, generateNarration, generateVisuals, regenerateSceneNarration, regenerateSceneVisual, regenerateSection, rejectScript, renderLongVideo, reopenScript, saveScriptRevision, updateSceneVisualApproval } from "@/app/actions";
 import { StatusPill } from "@/components/status-pill";
 
 type Scene = {
@@ -11,6 +12,7 @@ type Scene = {
   scriptureRef: string | null;
   durationMs: number;
   narrationUrl: string | null;
+  visual: { id: string; url: string; status: string } | null;
 };
 type Script = { id: string; title: string; hook: string; body: string; status: string; revision: number; scenes: Scene[] };
 type Revision = { id: string; revision: number; status: string; createdAt: Date };
@@ -33,6 +35,7 @@ export function ScriptReview({ script, revisions, validation, narrationReady, vi
         <label>Narration<textarea name={`scene.${scene.id}.narration`} defaultValue={scene.narration} required/></label>
         {scene.narrationUrl ? <audio controls preload="metadata" src={scene.narrationUrl}>Your browser does not support audio playback.</audio> : null}
         <label>Visual direction<textarea name={`scene.${scene.id}.visualPrompt`} defaultValue={scene.visualPrompt} required/></label>
+        {scene.visual ? <div className="scene-visual-review"><Image src={scene.visual.url} alt={`Generated visual for scene ${scene.position}`} width={960} height={540} unoptimized/><div className="action-row"><span>Visual status: {scene.visual.status.toLowerCase()}</span>{scene.visual.status !== "APPROVED" ? <><button className="button button-primary" type="submit" formAction={updateSceneVisualApproval} formNoValidate name="decision" value={`${scene.id}:APPROVED`}>Approve visual</button><button className="button button-ghost" type="submit" formAction={updateSceneVisualApproval} formNoValidate name="decision" value={`${scene.id}:REJECTED`}>Reject</button></> : null}</div></div> : null}
         <div className="scene-fields"><label>Scripture reference<input name={`scene.${scene.id}.scriptureRef`} defaultValue={scene.scriptureRef ?? ""}/></label><label>Duration (ms)<input name={`scene.${scene.id}.durationMs`} type="number" min={1000} max={300000} defaultValue={scene.durationMs} required/></label></div>
         {script.status === "APPROVED" ? <div className="action-row"><button className="button button-ghost" type="submit" formAction={regenerateSceneNarration} formNoValidate name="sceneId" value={scene.id}>Regenerate this narration</button><button className="button button-ghost" type="submit" formAction={regenerateSceneVisual} formNoValidate name="sceneId" value={scene.id} disabled={!scene.narrationUrl}>Replace this visual</button></div> : null}
       </fieldset>)}</div>

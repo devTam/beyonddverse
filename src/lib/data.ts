@@ -51,6 +51,10 @@ export async function getChapterProject(projectId?: string, workflowId?: string,
       contentPackages: {
         orderBy: { version: "desc" },
         include: {
+          variants: {
+            include: { videoRender: { include: { asset: true } } },
+            orderBy: { kind: "asc" },
+          },
           scripts: {
             orderBy: { revision: "desc" },
             include: { scenes: { orderBy: { position: "asc" }, include: { narrations: { include: { asset: true }, orderBy: { createdAt: "desc" } }, assetUsages: { include: { asset: true } } } } },

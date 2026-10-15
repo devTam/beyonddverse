@@ -81,6 +81,18 @@ export async function updateAssetApproval(formData: FormData) {
   revalidatePath("/assets");
 }
 
+export async function updateSceneVisualApproval(formData: FormData) {
+  const session = await requireUser(await headers());
+  const [sceneId, status] = z.string().regex(/^[0-9a-f-]+:(APPROVED|REJECTED)$/i).parse(formData.get("decision")).split(":");
+  const input = z.object({ sceneId: z.string().uuid(), status: z.enum(["APPROVED", "REJECTED"]) }).parse({ sceneId, status });
+  const usage = await prisma.assetUsage.findFirstOrThrow({ where: { sceneId: input.sceneId, role: "PRIMARY_VISUAL" }, include: { asset: true, scene: { include: { script: { include: { contentPackage: true } } } } } });
+  await prisma.$transaction([
+    prisma.asset.update({ where: { id: usage.assetId }, data: { status: input.status } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: `ASSET_${input.status}`, entityType: "Asset", entityId: usage.assetId, before: { status: usage.asset.status }, after: { status: input.status, sceneId: input.sceneId } } }),
+  ]);
+  revalidatePath("/studio/genesis-1");
+}
+
 export async function resolveOperationalAlert(formData: FormData) {
   const session = await requireUser(await headers());
   const alertId = z.string().uuid().parse(formData.get("alertId"));
