@@ -81,9 +81,8 @@ export async function updateAssetApproval(formData: FormData) {
   revalidatePath("/assets");
 }
 
-export async function updateSceneVisualApproval(formData: FormData) {
+export async function updateSceneVisualApproval(sceneId: string, status: string) {
   const session = await requireUser(await headers());
-  const [sceneId, status] = z.string().regex(/^[0-9a-f-]+:(APPROVED|REJECTED)$/i).parse(formData.get("decision")).split(":");
   const input = z.object({ sceneId: z.string().uuid(), status: z.enum(["APPROVED", "REJECTED"]) }).parse({ sceneId, status });
   const usage = await prisma.assetUsage.findFirstOrThrow({ where: { sceneId: input.sceneId, role: "PRIMARY_VISUAL" }, include: { asset: true, scene: { include: { script: { include: { contentPackage: true } } } } } });
   await prisma.$transaction([
@@ -354,9 +353,9 @@ export async function generateVisuals(formData: FormData) {
   redirect(`/studio/genesis-1?workflow=${run.id}`);
 }
 
-export async function regenerateSceneNarration(formData: FormData) {
+export async function regenerateSceneNarration(sceneId: string) {
   await requireUser(await headers());
-  const sceneId = z.string().uuid().parse(formData.get("sceneId"));
+  sceneId = z.string().uuid().parse(sceneId);
   const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: sceneId }, include: { script: { include: { contentPackage: true } } } });
   if (scene.script.status !== "APPROVED") throw new Error("Approve the script before regenerating narration.");
   await assertWorkflowCapacity();
@@ -368,9 +367,9 @@ export async function regenerateSceneNarration(formData: FormData) {
   redirect(`/studio/genesis-1?workflow=${run.id}&script=${scene.scriptId}`);
 }
 
-export async function regenerateSceneVisual(formData: FormData) {
+export async function regenerateSceneVisual(sceneId: string) {
   await requireUser(await headers());
-  const sceneId = z.string().uuid().parse(formData.get("sceneId"));
+  sceneId = z.string().uuid().parse(sceneId);
   const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: sceneId }, include: { narrations: true, script: { include: { contentPackage: true } } } });
   if (scene.script.status !== "APPROVED") throw new Error("Approve the script before regenerating a visual.");
   if (!scene.narrations.length) throw new Error("Generate narration before regenerating a visual.");
