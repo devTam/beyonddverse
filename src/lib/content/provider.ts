@@ -42,6 +42,7 @@ export class DevelopmentContentProvider implements ContentProvider {
         instagram: { caption: "Your dignity is received before it is achieved. Genesis 1 grounds human worth in the image of God.", hashtags: ["Genesis1", "BibleTeaching", "Faith"] },
         facebook: { caption: "Explore Genesis 1 and the biblical foundation for human dignity, purpose, and care for creation.", hashtags: ["BibleStudy", "Genesis", "Faith"] },
         tiktok: { caption: "The pattern hidden in Genesis 1: forming, filling, and a world called good.", hashtags: ["BibleTok", "Genesis1", "ChristianEducation"] },
+        x: { posts: ["Genesis 1 begins with God already acting—not with an argument for God.", "The chapter moves from a world unformed toward a home ordered and filled with life: spaces are formed, then filled.", "Human dignity is received before it is achieved. Genesis grounds it in the image of God, not power, productivity, or status."], hashtags: ["BibleStudy", "Genesis1"] },
       },
       metadata: {
         description: "A chapter-by-chapter teaching on Genesis 1, creation, human dignity, and the goodness of the world.",

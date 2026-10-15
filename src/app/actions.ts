@@ -354,8 +354,8 @@ export async function renderShortVideo(formData: FormData) {
   const render = await prisma.videoRender.create({ data: { format: "9:16", composition: "YouTubeShort", status: "QUEUED", input: { scriptId: script.id } } });
   await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "MASTER", kind: script.kind } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "MASTER", kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id } } });
   const socialCopy = script.contentPackage.socialCopy as Record<string, unknown>;
-  const copyKey: Record<string, string> = { YOUTUBE_SHORTS: "youtubeShorts", TIKTOK: "tiktok", INSTAGRAM_REELS: "instagram", FACEBOOK_REELS: "facebook" };
-  await Promise.all(["YOUTUBE_SHORTS", "TIKTOK", "INSTAGRAM_REELS", "FACEBOOK_REELS"].map((platform) => prisma.contentVariant.upsert({
+  const copyKey: Record<string, string> = { YOUTUBE_SHORTS: "youtubeShorts", TIKTOK: "tiktok", INSTAGRAM_REELS: "instagram", FACEBOOK_REELS: "facebook", X: "x" };
+  await Promise.all(["YOUTUBE_SHORTS", "TIKTOK", "INSTAGRAM_REELS", "FACEBOOK_REELS", "X"].map((platform) => prisma.contentVariant.upsert({
     where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform, kind: script.kind } },
     create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform, kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[copyKey[platform]] ?? null } },
     update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[copyKey[platform]] ?? null } },

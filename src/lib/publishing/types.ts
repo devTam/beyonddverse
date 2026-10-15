@@ -1,6 +1,6 @@
-export type PublishMedia = { url: string; bytes: number; mimeType: string; title: string; description: string; scheduledAt?: Date; thumbnailUrl?: string; thumbnailMimeType?: string; playlistIds?: string[] };
+export type PublishMedia = { url: string; bytes: number; mimeType: string; title: string; description: string; posts?: string[]; scheduledAt?: Date; thumbnailUrl?: string; thumbnailMimeType?: string; playlistIds?: string[] };
 export type PublishResult = { externalId: string; url: string; status: string; raw: Record<string, unknown> };
-export type AnalyticsMetrics = { views?: number; watchTimeMinutes?: number; averageViewDurationSeconds?: number; likes?: number; comments?: number; shares?: number; followersGained?: number };
+export type AnalyticsMetrics = { views?: number; watchTimeMinutes?: number; averageViewDurationSeconds?: number; likes?: number; comments?: number; shares?: number; saves?: number; followersGained?: number };
 
 export interface Publisher {
   readonly platform: string;

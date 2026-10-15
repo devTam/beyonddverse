@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { oauthProvider, type SupportedProvider } from "@/lib/publishing";
 
-const Provider = z.enum(["youtube", "meta", "tiktok"]);
+const Provider = z.enum(["youtube", "meta", "tiktok", "x"]);
 const digest = (value: string) => createHash("sha256").update(value).digest("base64url");
 
 export async function GET(request: Request, context: { params: Promise<{ provider: string }> }) {

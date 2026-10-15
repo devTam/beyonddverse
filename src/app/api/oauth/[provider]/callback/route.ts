@@ -7,7 +7,7 @@ import { oauthProvider, type SupportedProvider } from "@/lib/publishing";
 import { encryptSecret } from "@/lib/security/encryption";
 import type { Prisma } from "@prisma/client";
 
-const Provider = z.enum(["youtube", "meta", "tiktok"]);
+const Provider = z.enum(["youtube", "meta", "tiktok", "x"]);
 const digest = (value: string) => createHash("sha256").update(value).digest("base64url");
 
 export async function GET(request: Request, context: { params: Promise<{ provider: string }> }) {
@@ -24,7 +24,7 @@ export async function GET(request: Request, context: { params: Promise<{ provide
   const metadata = { ...(identity.metadata ?? {}) };
   const accountToken = typeof metadata.pageAccessToken === "string" ? metadata.pageAccessToken : tokens.accessToken;
   delete metadata.pageAccessToken;
-  const platform = provider === "youtube" ? "YOUTUBE" : provider === "tiktok" ? "TIKTOK" : metadata.instagramBusinessId ? "INSTAGRAM" : "FACEBOOK";
+  const platform = provider === "youtube" ? "YOUTUBE" : provider === "tiktok" ? "TIKTOK" : provider === "x" ? "X" : metadata.instagramBusinessId ? "INSTAGRAM" : "FACEBOOK";
   const facebookId = provider === "meta" && typeof metadata.pageId === "string" ? metadata.pageId : null;
   const facebookName = typeof metadata.pageName === "string" ? metadata.pageName : identity.displayName;
   await prisma.$transaction([

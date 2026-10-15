@@ -23,6 +23,7 @@ export const GeneratedPackageSchema = z.object({
     instagram: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
     facebook: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
     tiktok: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
+    x: z.object({ posts: z.array(z.string().min(1).max(280)).min(1).max(25), hashtags: z.array(z.string()) }),
   }),
   metadata: z.object({
     description: z.string(),

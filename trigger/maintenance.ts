@@ -28,7 +28,7 @@ export const refreshSocialTokens = schedules.task({
     const accounts = await prisma.socialAccount.findMany({ where: { encryptedRefreshToken: { not: null }, disconnectedAt: null, tokenExpiresAt: { lte: new Date(Date.now() + 24 * 60 * 60_000) } } });
     for (const account of accounts) {
       try {
-        const provider: SupportedProvider = account.platform === "YOUTUBE" ? "youtube" : account.platform === "TIKTOK" ? "tiktok" : "meta";
+        const provider: SupportedProvider = account.platform === "YOUTUBE" ? "youtube" : account.platform === "TIKTOK" ? "tiktok" : account.platform === "X" ? "x" : "meta";
         const refreshed = await oauthProvider(provider).refresh(decryptSecret(account.encryptedRefreshToken!));
         await prisma.socialAccount.update({ where: { id: account.id }, data: { encryptedToken: encryptSecret(refreshed.accessToken), encryptedRefreshToken: refreshed.refreshToken ? encryptSecret(refreshed.refreshToken) : undefined, tokenExpiresAt: refreshed.expiresAt } });
       } catch (error) {

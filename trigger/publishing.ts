@@ -36,7 +36,7 @@ export const publishScheduledPost = schemaTask({
     try {
       let accessToken = decryptSecret(post.socialAccount.encryptedToken);
       if (post.socialAccount.tokenExpiresAt && post.socialAccount.tokenExpiresAt <= new Date(Date.now() + 5 * 60_000) && post.socialAccount.encryptedRefreshToken) {
-        const provider = post.socialAccount.platform === "YOUTUBE" ? "youtube" : post.socialAccount.platform === "TIKTOK" ? "tiktok" : "meta";
+        const provider = post.socialAccount.platform === "YOUTUBE" ? "youtube" : post.socialAccount.platform === "TIKTOK" ? "tiktok" : post.socialAccount.platform === "X" ? "x" : "meta";
         const refreshed = await oauthProvider(provider as SupportedProvider).refresh(decryptSecret(post.socialAccount.encryptedRefreshToken));
         accessToken = refreshed.accessToken;
         await prisma.socialAccount.update({ where: { id: post.socialAccount.id }, data: { encryptedToken: encryptSecret(accessToken), encryptedRefreshToken: refreshed.refreshToken ? encryptSecret(refreshed.refreshToken) : undefined, tokenExpiresAt: refreshed.expiresAt } });
@@ -49,6 +49,7 @@ export const publishScheduledPost = schemaTask({
         url: createSignedDeliveryUrl(asset), bytes: Number(asset.bytes), mimeType: asset.mimeType,
         title: String(copy.title ?? metadata.title ?? "Beyond the Verse"),
         description: String(copy.caption ?? metadata.description ?? "Beyond the Verse Bible teaching"),
+        posts: Array.isArray(copy.posts) ? copy.posts.filter((value): value is string => typeof value === "string") : undefined,
         scheduledAt: post.scheduledAt > new Date() ? post.scheduledAt : undefined,
         thumbnailUrl: thumbnail ? createSignedDeliveryUrl(thumbnail) : undefined,
         thumbnailMimeType: thumbnail?.mimeType,
