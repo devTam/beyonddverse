@@ -102,3 +102,4 @@ export const collectPublicationAnalytics = schemaTask({
     return prisma.analyticsSnapshot.create({ data: { publishedPostId: post.id, capturedAt: new Date(), metrics: result.metrics as Prisma.InputJsonValue, raw: result.raw as Prisma.InputJsonValue } });
   },
 });
+import "../src/lib/observability/node";

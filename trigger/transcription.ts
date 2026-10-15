@@ -62,3 +62,4 @@ export const transcribeExplanation = schemaTask({
     }
   },
 });
+import "../src/lib/observability/node";

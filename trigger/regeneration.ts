@@ -26,3 +26,4 @@ export const regenerateScriptSection = schemaTask({
     } catch (error) { const message = error instanceof Error ? error.message : "Section regeneration failed"; await prisma.$transaction([prisma.workflowStep.update({ where: step, data: { status: "FAILED", completedAt: new Date(), error: message } }), prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "FAILED", completedAt: new Date(), error: message } })]); throw error; }
   },
 });
+import "../src/lib/observability/node";

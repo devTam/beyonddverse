@@ -5,7 +5,7 @@ Beyond the Verse is currently a Next.js modular monolith backed by PostgreSQL/Pr
 ## Implemented and verified
 
 - Better Auth administrator login, database sessions, route proxy, server-side mutation authorization, and administrator email allowlist
-- 66-book Protestant canon and all 1,189 chapter records; public-domain WEB text for Genesis 1
+- 66-book Protestant canon, all 1,189 chapters, and the complete 31,098-verse public-domain WEB corpus
 - immutable written explanations plus browser recording/audio upload with authenticated direct Cloudinary upload
 - durable Trigger.dev audio transcription that retains the original asset and creates an immutable transcript revision
 - durable Trigger.dev Scripture preparation, structured content generation, reference validation, and persistence pipeline
@@ -20,27 +20,23 @@ Beyond the Verse is currently a Next.js modular monolith backed by PostgreSQL/Pr
 - three separately approved short scripts with independent narration/visual generation and shared 9:16 platform masters
 - database-backed final media approval, UTC scheduling, cancel/reschedule controls, and delayed manual-publishing fallback tasks
 - complete 66-book WEB USFM source and deterministic 31,000+ verse importer
-- encrypted OAuth connections and official YouTube, Instagram, and TikTok publisher adapters
+- encrypted OAuth connections and official YouTube, Instagram, Facebook, and TikTok publisher adapters
 - publication attempt history, remote reconciliation, official analytics collection, and analytics dashboards
 - asset approval library, thumbnail generation, background-music selection, and generation budget enforcement
-- Sentry instrumentation, database-backed authentication rate limiting, CSP/security headers, and worker readiness checks
+- Sentry instrumentation across Next.js, Trigger.dev, and the render worker; database-backed authentication rate limiting; CSP/security headers; operational alerts; and worker readiness checks
 - production web build, Trigger.dev bundle dry-run, strict type check, lint, unit tests, and auth HTTP behavior
 
-## Not implemented yet
+## Remaining acceptance dependencies
 
-- visual revision comparison and one-click section regeneration
-- word-level narration timings, FFmpeg normalization, playback controls, and manual narration-segment regeneration
-- visual replacement upload and side-by-side revision comparison
-- word-level narration timings and manual narration-segment replacement
-- richer rendered-media preview controls and downloadable manual-publish packages
+- side-by-side visual revision comparison and manual narration-segment replacement
 - provider settings editing remains environment-managed rather than exposing secrets to the UI
 - end-to-end MVP acceptance test through an authorized social test account
 
 ## Operational blockers requiring account access
 
-- Railway Postgres needs a public TCP/database URL before Vercel can connect. Creating that public endpoint requires explicit owner approval.
-- The local Vercel CLI credential is inaccessible, so the repository still needs linking and Vercel environment configuration from an authenticated session.
-- AI narration/image models and social OAuth applications/test accounts must be supplied before those paths can be proven.
+- Vercel project creation is awaiting confirmation of the intended authenticated Vercel team.
+- Trigger.dev needs `AI_GATEWAY_API_KEY` because it cannot use Vercel deployment OIDC.
+- `ADMIN_EMAIL`, social OAuth application credentials/test accounts, and `SENTRY_DSN` must be supplied before their production paths can be proven.
 
 ## Invariants
 

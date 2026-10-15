@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { z } from "zod";
 import { executeRender } from "./render";
 import { prisma } from "../../../src/lib/prisma";
+import { Sentry } from "../../../src/lib/observability/node";
 
 const RequestSchema = z.object({ renderId: z.string().uuid() });
 const port = Number(process.env.PORT ?? 8080);
@@ -41,6 +42,8 @@ createServer(async (request, response) => {
     const result = await job;
     response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result));
   } catch (error) {
+    Sentry.captureException(error, { tags: { component: "render-worker" } });
+    await Sentry.flush(2_000);
     const status = error instanceof z.ZodError || (error instanceof Error && error.message === "Request body is too large.") ? 400 : 500;
     response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify({ error: error instanceof Error ? error.message : "Render failed" }));
   }

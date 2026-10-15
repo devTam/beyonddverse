@@ -53,3 +53,4 @@ async function execute(payload: z.infer<typeof RenderInput>) {
 
 export const renderLongFormVideo = schemaTask({ id: "render-long-form-video", schema: RenderInput, retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 5_000, maxTimeoutInMs: 60_000 }, maxDuration: 1_800, run: execute });
 export const renderShortFormVideo = schemaTask({ id: "render-short-form-video", schema: RenderInput, retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 5_000, maxTimeoutInMs: 60_000 }, maxDuration: 1_800, run: execute });
+import "../src/lib/observability/node";

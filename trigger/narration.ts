@@ -81,3 +81,4 @@ export const narrationPipeline = schemaTask({
     }
   },
 });
+import "../src/lib/observability/node";

@@ -37,3 +37,4 @@ export const refreshSocialTokens = schedules.task({
     return { processed: accounts.length };
   },
 });
+import "../src/lib/observability/node";

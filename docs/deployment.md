@@ -10,11 +10,11 @@ DATABASE_URL='postgresql://…' npm run db:seed
 DATABASE_URL='postgresql://…' npm run db:import:web
 ```
 
-Vercel cannot reach Railway private DNS. Enable Railway's Postgres TCP proxy/public networking, copy the external `DATABASE_URL`, and rotate credentials according to the Railway account policy.
+Vercel uses Railway's TLS-enabled public TCP endpoint while Railway services use the private service URL. The production schema and the complete 31,098-verse WEB corpus have been imported.
 
 ## 2. Trigger.dev
 
-The configured project ref is `proj_arshoohyphgefpqxzivf`. Configure the production values used by tasks (`DATABASE_URL`, AI Gateway, and Cloudinary variables), then run `npm run trigger:deploy`. Copy the production `TRIGGER_SECRET_KEY` into Vercel. A dry-run build does not deploy tasks.
+The configured project ref is `proj_arshoohyphgefpqxzivf`; production version `20261015.1` is deployed. Trigger.dev still requires an `AI_GATEWAY_API_KEY` for real provider execution because Vercel OIDC is unavailable outside Vercel. Copy the production `TRIGGER_SECRET_KEY` into Vercel.
 
 ## 3. Vercel project
 
@@ -39,3 +39,17 @@ The `render-worker` Railway service is declared in `.railway/railway.ts` and fol
 ## External approval gates
 
 YouTube requires a Google OAuth application and authorized test account. Meta and TikTok publishing require their respective app products and may require external review. Keep YouTube uploads `unlisted` and TikTok uploads `SELF_ONLY` until acceptance testing is complete.
+
+## PostgreSQL backup and restore drill
+
+Use Railway's scheduled backups for normal recovery and retain an encrypted logical export before migrations. Never write database URLs into scripts or Git history.
+
+```bash
+pg_dump --format=custom --no-owner --no-acl "$SOURCE_DATABASE_URL" --file beyond-the-verse.dump
+createdb "$DISPOSABLE_DATABASE_URL"
+pg_restore --clean --if-exists --no-owner --no-acl --dbname "$DISPOSABLE_DATABASE_URL" beyond-the-verse.dump
+DATABASE_URL="$DISPOSABLE_DATABASE_URL" npx prisma migrate status
+psql "$DISPOSABLE_DATABASE_URL" -c 'select count(*) from bible_verses;'
+```
+
+The drill passes only when migrations are current, the verse count is 31,098, representative projects and workflow rows can be queried, and the disposable database is removed afterward. Production restore requires a maintenance window, a fresh pre-restore export, and post-restore `/ready` plus application smoke checks.

@@ -196,3 +196,4 @@ export const contentPipeline = schemaTask({
     }
   },
 });
+import "../src/lib/observability/node";

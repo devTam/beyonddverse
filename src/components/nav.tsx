@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpenText, CalendarDays, ChartNoAxesCombined, Clapperboard, Images, LayoutDashboard, Settings2, Sparkles } from "lucide-react";
+import { Activity, BookOpenText, CalendarDays, ChartNoAxesCombined, Clapperboard, Images, LayoutDashboard, Settings2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -9,6 +9,7 @@ const items = [
   { href: "/assets", label: "Media library", icon: Images },
   { href: "/calendar", label: "Publishing", icon: CalendarDays },
   { href: "/analytics", label: "Analytics", icon: ChartNoAxesCombined },
+  { href: "/operations", label: "Operations", icon: Activity },
 ];
 
 export function Nav() {

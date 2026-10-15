@@ -34,3 +34,4 @@ export const generateThumbnail = schemaTask({
     }
   },
 });
+import "../src/lib/observability/node";

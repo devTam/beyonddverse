@@ -76,6 +76,19 @@ export async function updateAssetApproval(formData: FormData) {
   revalidatePath("/assets");
 }
 
+export async function resolveOperationalAlert(formData: FormData) {
+  const session = await requireUser(await headers());
+  const alertId = z.string().uuid().parse(formData.get("alertId"));
+  const alert = await prisma.operationalAlert.findUniqueOrThrow({ where: { id: alertId } });
+  if (alert.resolvedAt) return;
+  const resolvedAt = new Date();
+  await prisma.$transaction([
+    prisma.operationalAlert.update({ where: { id: alert.id }, data: { resolvedAt } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: "OPERATIONAL_ALERT_RESOLVED", entityType: "OperationalAlert", entityId: alert.id, before: { resolvedAt: null }, after: { resolvedAt } } }),
+  ]);
+  revalidatePath("/operations");
+}
+
 export async function selectBackgroundMusic(formData: FormData) {
   const session = await requireUser(await headers());
   const assetId = z.string().uuid().parse(formData.get("assetId"));

@@ -73,3 +73,4 @@ export const visualPipeline = schemaTask({
     }
   },
 });
+import "../src/lib/observability/node";
