@@ -61,7 +61,7 @@ model User {
   email          String          @unique
   name           String          @default("Administrator")
   emailVerified  Boolean         @default(false) @map("email_verified")
-  image           String?
+  image          String?
   passwordHash   String?         @map("password_hash")
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
@@ -99,11 +99,11 @@ model Account {
   idToken               String?   @map("id_token")
   accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
   refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
-  scope                  String?
-  password               String?
-  createdAt              DateTime  @default(now()) @map("created_at")
-  updatedAt              DateTime  @updatedAt @map("updated_at")
-  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([providerId, accountId])
   @@index([userId])
@@ -304,18 +304,24 @@ model ScriptScene {
 }
 
 model Asset {
-  id               String        @id @default(uuid()) @db.Uuid
+  id               String         @id @default(uuid()) @db.Uuid
   kind             AssetKind
-  storageKey       String        @unique @map("storage_key")
-  mimeType         String        @map("mime_type")
+  storageKey       String         @unique @map("storage_key")
+  mimeType         String         @map("mime_type")
   bytes            BigInt
   checksum         String
   width            Int?
   height           Int?
-  durationMs       Int?          @map("duration_ms")
-  providerMetadata Json?         @map("provider_metadata")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  sourceFor        Explanation[] @relation("ExplanationSource")
+  durationMs       Int?           @map("duration_ms")
+  providerMetadata Json?          @map("provider_metadata")
+  status           ApprovalStatus @default(DRAFT)
+  parentId         String?        @map("parent_id") @db.Uuid
+  projectId        String?        @map("project_id") @db.Uuid
+  license          String?
+  parent           Asset?         @relation("AssetRevisions", fields: [parentId], references: [id], onDelete: SetNull)
+  revisions        Asset[]        @relation("AssetRevisions")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  sourceFor        Explanation[]  @relation("ExplanationSource")
   usages           AssetUsage[]
   narrations       Narration[]
   videoRenders     VideoRender[]
@@ -386,47 +392,86 @@ model ContentVariant {
 }
 
 model SocialAccount {
-  id             String          @id @default(uuid()) @db.Uuid
-  platform       String
-  externalId     String          @map("external_id")
-  displayName    String          @map("display_name")
-  timezone       String          @default("UTC")
-  encryptedToken String?         @map("encrypted_token")
-  tokenExpiresAt DateTime?       @map("token_expires_at")
-  scheduledPosts ScheduledPost[]
+  id                    String          @id @default(uuid()) @db.Uuid
+  platform              String
+  externalId            String          @map("external_id")
+  displayName           String          @map("display_name")
+  timezone              String          @default("UTC")
+  encryptedToken        String?         @map("encrypted_token")
+  encryptedRefreshToken String?         @map("encrypted_refresh_token")
+  tokenExpiresAt        DateTime?       @map("token_expires_at")
+  scopes                String[]        @default([])
+  providerMetadata      Json?           @map("provider_metadata")
+  disconnectedAt        DateTime?       @map("disconnected_at")
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
+  scheduledPosts        ScheduledPost[]
 
   @@unique([platform, externalId])
   @@map("social_accounts")
 }
 
+model OAuthState {
+  id           String    @id @default(uuid()) @db.Uuid
+  provider     String
+  stateHash    String    @unique @map("state_hash")
+  codeVerifier String?   @map("code_verifier")
+  redirectUri  String    @map("redirect_uri")
+  expiresAt    DateTime  @map("expires_at")
+  consumedAt   DateTime? @map("consumed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([provider, expiresAt])
+  @@map("oauth_states")
+}
+
 model ScheduledPost {
-  id              String         @id @default(uuid()) @db.Uuid
-  projectId       String         @map("project_id") @db.Uuid
-  variantId       String         @map("variant_id") @db.Uuid
-  socialAccountId String         @map("social_account_id") @db.Uuid
-  scheduledAt     DateTime       @map("scheduled_at")
-  status          PublishStatus  @default(DRAFT)
-  idempotencyKey  String         @unique @map("idempotency_key")
-  project         ChapterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  variant         ContentVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  socialAccount   SocialAccount  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  id              String               @id @default(uuid()) @db.Uuid
+  projectId       String               @map("project_id") @db.Uuid
+  variantId       String               @map("variant_id") @db.Uuid
+  socialAccountId String               @map("social_account_id") @db.Uuid
+  scheduledAt     DateTime             @map("scheduled_at")
+  status          PublishStatus        @default(DRAFT)
+  idempotencyKey  String               @unique @map("idempotency_key")
+  project         ChapterProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  variant         ContentVariant       @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount        @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   publishedPost   PublishedPost?
+  attempts        PublicationAttempt[]
 
   @@index([status, scheduledAt])
   @@map("scheduled_posts")
 }
 
 model PublishedPost {
-  id              String              @id @default(uuid()) @db.Uuid
-  scheduledPostId String              @unique @map("scheduled_post_id") @db.Uuid
-  externalId      String              @map("external_id")
-  url             String
-  publishedAt     DateTime            @map("published_at")
-  rawResponse     Json?               @map("raw_response")
-  scheduledPost   ScheduledPost       @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
-  analytics       AnalyticsSnapshot[]
+  id               String              @id @default(uuid()) @db.Uuid
+  scheduledPostId  String              @unique @map("scheduled_post_id") @db.Uuid
+  externalId       String              @map("external_id")
+  url              String
+  publishedAt      DateTime            @map("published_at")
+  rawResponse      Json?               @map("raw_response")
+  scheduledPost    ScheduledPost       @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
+  analytics        AnalyticsSnapshot[]
+  remoteStatus     String              @default("UNKNOWN") @map("remote_status")
+  lastReconciledAt DateTime?           @map("last_reconciled_at")
 
   @@map("published_posts")
+}
+
+model PublicationAttempt {
+  id              String        @id @default(uuid()) @db.Uuid
+  scheduledPostId String        @map("scheduled_post_id") @db.Uuid
+  attempt         Int
+  status          String
+  request         Json?
+  response        Json?
+  error           String?
+  startedAt       DateTime      @default(now()) @map("started_at")
+  completedAt     DateTime?     @map("completed_at")
+  scheduledPost   ScheduledPost @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduledPostId, attempt])
+  @@map("publication_attempts")
 }
 
 model AnalyticsSnapshot {
@@ -495,11 +540,36 @@ model GenerationCost {
   amountMicros BigInt         @map("amount_micros")
   currency     String         @default("USD")
   units        Json?
+  model        String?
+  estimated    Boolean        @default(false)
   createdAt    DateTime       @default(now()) @map("created_at")
   project      ChapterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId, createdAt])
   @@map("generation_costs")
+}
+
+model WorkspaceSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("workspace_settings")
+}
+
+model OperationalAlert {
+  id         String    @id @default(uuid()) @db.Uuid
+  severity   String
+  category   String
+  message    String
+  entityType String?   @map("entity_type")
+  entityId   String?   @map("entity_id")
+  metadata   Json?
+  resolvedAt DateTime? @map("resolved_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([resolvedAt, severity, createdAt])
+  @@map("operational_alerts")
 }
 
 model ApprovalEvent {

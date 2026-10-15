@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { getContentProvider } from "../src/lib/content/provider";
 import { GeneratedPackageSchema } from "../src/lib/content/schema";
 import { prisma } from "../src/lib/prisma";
+import { assertWithinBudget, recordGenerationCost, tokenCostMicros } from "../src/lib/costs";
 
 const contentQueue = queue({ name: "content-generation", concurrencyLimit: 3 });
 const PipelineInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), explanationId: z.string().uuid() });
@@ -67,7 +68,10 @@ export const generateStructuredPackage = schemaTask({
   run: async (payload) => {
     await startStep(payload.workflowRunId, 2);
     try {
-      const generated = await getContentProvider().generate(payload.context);
+      await assertWithinBudget(payload.projectId);
+      const generated = await getContentProvider().generate(payload.context, async (usage) => {
+        await recordGenerationCost({ projectId: payload.projectId, provider: usage.provider, model: usage.model, operation: "CONTENT_GENERATION", amountMicros: tokenCostMicros(usage.inputTokens, usage.outputTokens), units: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } });
+      });
       await finishStep(payload.workflowRunId, 2);
       return generated;
     } catch (error) {

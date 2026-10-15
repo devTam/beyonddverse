@@ -1,0 +1,24 @@
+import { z } from "zod";
+import { mediaBuffer, providerJson } from "./http";
+import type { OAuthProvider, OAuthTokens, Publisher, PublishMedia } from "./types";
+
+const API = "https://open.tiktokapis.com/v2";
+function credentials() { const clientKey = process.env.TIKTOK_CLIENT_KEY; const clientSecret = process.env.TIKTOK_CLIENT_SECRET; if (!clientKey || !clientSecret) throw new Error("TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET are required."); return { clientKey, clientSecret }; }
+const Token = z.object({ access_token: z.string(), refresh_token: z.string().optional(), expires_in: z.number().optional(), scope: z.string().optional() });
+
+export class TikTokOAuth implements OAuthProvider {
+  authorizationUrl(state: string, redirectUri: string, codeChallenge?: string) { const { clientKey } = credentials(); const url = new URL("https://www.tiktok.com/v2/auth/authorize/"); url.search = new URLSearchParams({ client_key: clientKey, redirect_uri: redirectUri, response_type: "code", scope: "user.info.basic,video.publish,video.upload", state, ...(codeChallenge ? { code_challenge: codeChallenge, code_challenge_method: "S256" } : {}) }).toString(); return url; }
+  async exchange(code: string, redirectUri: string, codeVerifier?: string) { const { clientKey, clientSecret } = credentials(); return this.token({ client_key: clientKey, client_secret: clientSecret, code, grant_type: "authorization_code", redirect_uri: redirectUri, ...(codeVerifier ? { code_verifier: codeVerifier } : {}) }); }
+  async refresh(refreshToken: string) { const { clientKey, clientSecret } = credentials(); return this.token({ client_key: clientKey, client_secret: clientSecret, grant_type: "refresh_token", refresh_token: refreshToken }); }
+  private async token(body: Record<string, string>): Promise<OAuthTokens> { const result = await providerJson("https://open.tiktokapis.com/v2/oauth/token/", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body) }, Token); return { accessToken: result.access_token, refreshToken: result.refresh_token, expiresAt: result.expires_in ? new Date(Date.now() + result.expires_in * 1000) : undefined, scopes: result.scope?.split(",") ?? [] }; }
+  async identity(accessToken: string) { const result = await providerJson(`${API}/user/info/?fields=open_id,display_name`, { headers: { authorization: `Bearer ${accessToken}` } }, z.object({ data: z.object({ user: z.object({ open_id: z.string(), display_name: z.string() }) }) })); return { externalId: result.data.user.open_id, displayName: result.data.user.display_name }; }
+}
+
+export class TikTokPublisher implements Publisher {
+  readonly platform = "TIKTOK";
+  validate(media: PublishMedia) { if (!media.mimeType.startsWith("video/")) throw new Error("TikTok requires a video asset."); if (media.bytes > 4 * 1024 ** 3) throw new Error("TikTok upload exceeds 4 GB."); }
+  async publish(media: PublishMedia, accessToken: string) { this.validate(media); const init = await providerJson(`${API}/post/publish/video/init/`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ post_info: { title: media.description.slice(0, 2_200), privacy_level: process.env.TIKTOK_PRIVACY_LEVEL ?? "SELF_ONLY", disable_duet: false, disable_comment: false, disable_stitch: false }, source_info: { source: "FILE_UPLOAD", video_size: media.bytes, chunk_size: media.bytes, total_chunk_count: 1 } }) }, z.object({ data: z.object({ publish_id: z.string(), upload_url: z.string() }) })); const body = await mediaBuffer(media.url, 4 * 1024 ** 3); const uploaded = await fetch(init.data.upload_url, { method: "PUT", headers: { "content-type": media.mimeType, "content-length": String(body.length), "content-range": `bytes 0-${body.length - 1}/${body.length}` }, body, signal: AbortSignal.timeout(10 * 60_000) }); if (!uploaded.ok) throw new Error(`TikTok upload failed (${uploaded.status}): ${(await uploaded.text()).slice(0, 500)}`); return { externalId: init.data.publish_id, url: "https://www.tiktok.com/", status: "processing", raw: { publish_id: init.data.publish_id } }; }
+  async reconcile(externalId: string, accessToken: string) { const result = await providerJson(`${API}/post/publish/status/fetch/`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ publish_id: externalId }) }, z.object({ data: z.object({ status: z.string(), publicaly_available_post_id: z.array(z.string()).optional(), fail_reason: z.string().optional() }) })); return { status: result.data.status, raw: result.data }; }
+  async analytics() { return { metrics: {}, raw: { unavailable: "TikTok analytics require an approved Research or Business API product." } }; }
+  async revoke() { /* TikTok exposes token revocation through its Login Kit product configuration. */ }
+}

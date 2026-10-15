@@ -11,6 +11,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "db:import:web": "tsx prisma/import-web.ts",
     "trigger:dev": "trigger.dev dev",
     "trigger:deploy": "trigger.dev deploy",
     "render:worker": "tsx workers/render/src/server.ts"

@@ -3,7 +3,7 @@ import { generateText, Output } from "ai";
 import { GeneratedPackageSchema, type GeneratedPackage } from "./schema";
 
 export interface ContentProvider {
-  generate(input: { reference: string; scripture: string; explanation: string }): Promise<GeneratedPackage>;
+  generate(input: { reference: string; scripture: string; explanation: string }, onUsage?: (usage: { provider: string; model: string; inputTokens: number; outputTokens: number }) => Promise<void>): Promise<GeneratedPackage>;
 }
 
 export class DevelopmentContentProvider implements ContentProvider {
@@ -56,7 +56,7 @@ export class DevelopmentContentProvider implements ContentProvider {
 }
 
 export class AiGatewayContentProvider implements ContentProvider {
-  async generate(input: { reference: string; scripture: string; explanation: string }) {
+  async generate(input: { reference: string; scripture: string; explanation: string }, onUsage?: (usage: { provider: string; model: string; inputTokens: number; outputTokens: number }) => Promise<void>) {
     const model = process.env.AI_GATEWAY_MODEL;
     if (!model) throw new Error("AI_GATEWAY_MODEL is required when CONTENT_PROVIDER=ai-gateway.");
 
@@ -80,6 +80,7 @@ export class AiGatewayContentProvider implements ContentProvider {
         recordOutputs: false,
       },
     });
+    await onUsage?.({ provider: "vercel-ai-gateway", model, inputTokens: result.usage.inputTokens ?? 0, outputTokens: result.usage.outputTokens ?? 0 });
     return GeneratedPackageSchema.parse(result.output);
   }
 }
