@@ -13,7 +13,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:import:web": "tsx prisma/import-web.ts",
     "trigger:dev": "trigger.dev dev",
-    "trigger:deploy": "trigger.dev deploy",
+    "trigger:deploy": "npx trigger.dev deploy",
     "render:worker": "tsx workers/render/src/server.ts"
   },
   "dependencies": {
@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",
+    "@trigger.dev/build": "^4.7.4",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
