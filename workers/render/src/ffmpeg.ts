@@ -11,7 +11,7 @@ export async function probeMedia(path: string) {
 }
 
 export async function normalizeAudio(input: string, output: string) {
-  await exec("ffmpeg", ["-y", "-i", input, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", "48000", output]);
+  await exec("ffmpeg", ["-y", "-i", input, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", "48000", "-movflags", "+faststart", output]);
 }
 
 export async function trimMedia(input: string, output: string, startSeconds: number, durationSeconds: number) {

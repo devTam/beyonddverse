@@ -7,7 +7,7 @@ import type { Prisma } from "@prisma/client";
 import type { VideoInput } from "../../../packages/video/src/types";
 import { createSignedDeliveryUrl, uploadAndCreateAsset } from "../../../src/lib/storage/cloudinary";
 import { prisma } from "../../../src/lib/prisma";
-import { probeMedia } from "./ffmpeg";
+import { normalizeAudio, probeMedia } from "./ffmpeg";
 import { getProductionSettings } from "../../../src/lib/settings";
 
 let bundlePromise: Promise<string> | undefined;
@@ -50,12 +50,19 @@ export async function executeRender(renderId: string) {
     const [serveUrl, inputProps] = await Promise.all([getBundle(), buildProps(input.scriptId)]);
     const composition = await selectComposition({ serveUrl, id: render.composition, inputProps });
     const output = join(directory, `${render.id}.mp4`);
+    const normalizedOutput = join(directory, `${render.id}-normalized.mp4`);
     const settings = await getProductionSettings();
     const quality = settings.videoQuality === "production" ? { crf: 14, jpegQuality: 100 } : settings.videoQuality === "high" ? { crf: 18, jpegQuality: 95 } : { crf: 23, jpegQuality: 85 };
     await renderMedia({ composition, serveUrl, codec: "h264", outputLocation: output, inputProps, imageFormat: "jpeg", ...quality, chromiumOptions: { disableWebSecurity: false }, concurrency: Math.min(settings.concurrencyLimit, 4) });
-    const inspected = await probeMedia(output);
+    await normalizeAudio(output, normalizedOutput);
+    const inspected = await probeMedia(normalizedOutput);
     if (!inspected.streams.some((stream) => stream.codec_type === "video") || !inspected.streams.some((stream) => stream.codec_type === "audio")) throw new Error("Rendered output must contain video and audio streams.");
-    const asset = await uploadAndCreateAsset({ body: await readFile(output), kind: "VIDEO", mimeType: "video/mp4", filename: `${render.composition}-${render.id}.mp4` });
+    const video = inspected.streams.find((stream) => stream.codec_type === "video");
+    const expected = render.format === "16:9" ? { width: 1920, height: 1080 } : { width: 1080, height: 1920 };
+    if (video?.width !== expected.width || video.height !== expected.height) throw new Error(`Rendered dimensions must be ${expected.width}x${expected.height}.`);
+    const expectedDuration = composition.durationInFrames / composition.fps;
+    if (Math.abs(inspected.format.duration - expectedDuration) > Math.max(1, expectedDuration * 0.02)) throw new Error("Rendered duration differs from the timing-derived composition duration.");
+    const asset = await uploadAndCreateAsset({ body: await readFile(normalizedOutput), kind: "VIDEO", mimeType: "video/mp4", filename: `${render.composition}-${render.id}.mp4` });
     await prisma.videoRender.update({ where: { id: render.id }, data: { status: "SUCCEEDED", assetId: asset.id } });
     return { renderId: render.id, assetId: asset.id, durationSeconds: inspected.format.duration };
   } catch (error) {

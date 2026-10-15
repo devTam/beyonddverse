@@ -1,4 +1,5 @@
 import { metadata, queue, schemaTask } from "@trigger.dev/sdk";
+import { transcribe } from "ai";
 import { z } from "zod";
 import { contentHash } from "../src/lib/content/provider";
 import { getSpeechProvider } from "../src/lib/audio/tts";
@@ -16,6 +17,20 @@ function wordTimings(text: string, durationMs: number) {
   const weight = words.reduce((sum, word) => sum + Math.max(1, word.length), 0);
   let cursor = 0;
   return words.map((word) => { const startMs = cursor; cursor += Math.round(durationMs * Math.max(1, word.length) / weight); return { word, startMs, endMs: cursor }; });
+}
+
+function segmentWordTimings(segments: Array<{ text: string; startSecond: number; endSecond: number }>) {
+  return segments.flatMap((segment) => {
+    const words = segment.text.trim().split(/\s+/).filter(Boolean);
+    const durationMs = Math.max(1, (segment.endSecond - segment.startSecond) * 1_000);
+    const weight = words.reduce((sum, word) => sum + Math.max(1, word.length), 0);
+    let cursor = segment.startSecond * 1_000;
+    return words.map((word) => {
+      const startMs = Math.round(cursor);
+      cursor += durationMs * Math.max(1, word.length) / Math.max(weight, 1);
+      return { word, startMs, endMs: Math.round(cursor) };
+    });
+  });
 }
 
 export const generateSceneNarration = schemaTask({
@@ -40,10 +55,14 @@ export const generateSceneNarration = schemaTask({
         : await (async () => {
             await assertWithinBudget(payload.projectId);
             const speech = await getSpeechProvider().synthesize(scene.narration, { model, voice, speed: settings.speechSpeed, pronunciationDictionary: settings.pronunciationDictionary });
+            await assertWithinBudget(payload.projectId);
+            const alignment = await transcribe({ model: settings.transcriptionModel, audio: speech.audio, maxRetries: 2, telemetry: { isEnabled: true, functionId: "narration-alignment", recordInputs: false, recordOutputs: false } });
             const asset = await uploadAndCreateAsset({ body: speech.audio, kind: "NARRATION", mimeType: speech.mimeType, filename: `scene-${scene.position}.${speech.format}`, projectId: payload.projectId });
-            const timings = wordTimings(scene.narration, asset.durationMs ?? scene.durationMs);
+            const timings = alignment.segments.length ? segmentWordTimings(alignment.segments) : wordTimings(scene.narration, asset.durationMs ?? scene.durationMs);
             const created = await prisma.narration.create({ data: { sceneId: scene.id, assetId: asset.id, provider: speech.provider, voiceId: speech.voiceId, inputHash, timings } });
             await recordGenerationCost({ projectId: payload.projectId, provider: speech.provider, model, operation: "SPEECH", amountMicros: scene.narration.length * configuredRate("AI_SPEECH_COST_PER_MILLION_CHARACTERS"), units: { characters: scene.narration.length } });
+            const alignmentSeconds = alignment.durationInSeconds ?? (asset.durationMs ?? scene.durationMs) / 1_000;
+            await recordGenerationCost({ projectId: payload.projectId, provider: "vercel-ai-gateway", model: settings.transcriptionModel, operation: "NARRATION_ALIGNMENT", amountMicros: alignmentSeconds / 60 * configuredRate("AI_TRANSCRIPTION_COST_PER_MINUTE_USD") * 1_000_000, units: { durationInSeconds: alignmentSeconds } });
             return created;
           })();
       await prisma.workflowStep.update({ where: stepKey, data: { status: "SUCCEEDED", completedAt: new Date() } });

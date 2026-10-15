@@ -458,8 +458,12 @@ export async function disconnectSocialAccount(formData: FormData) {
 export async function approveVariant(formData: FormData) {
   const session = await requireUser(await headers());
   const variantId = z.string().uuid().parse(formData.get("variantId"));
-  const variant = await prisma.contentVariant.findUniqueOrThrow({ where: { id: variantId }, include: { videoRender: true } });
+  const variant = await prisma.contentVariant.findUniqueOrThrow({ where: { id: variantId }, include: { videoRender: true, contentPackage: true } });
   if (variant.videoRender?.status !== "SUCCEEDED" || !variant.videoRender.assetId) throw new Error("Only a completed render can receive final approval.");
+  if (variant.platform === "YOUTUBE" && variant.kind === "LONG_FORM_MASTER") {
+    const thumbnail = await prisma.asset.findFirst({ where: { projectId: variant.contentPackage.projectId, kind: "THUMBNAIL", status: "APPROVED" } });
+    if (!thumbnail) throw new Error("Approve a YouTube thumbnail before approving the long-form master.");
+  }
   await prisma.$transaction([
     prisma.contentVariant.update({ where: { id: variant.id }, data: { status: "APPROVED" } }),
     prisma.auditLog.create({ data: { actorId: session.user.id, action: "CONTENT_VARIANT_APPROVED", entityType: "ContentVariant", entityId: variant.id, before: { status: variant.status }, after: { status: "APPROVED" } } }),

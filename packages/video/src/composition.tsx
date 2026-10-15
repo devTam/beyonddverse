@@ -40,7 +40,7 @@ export function TeachingVideo({ title, hook, brandName, brandAssetUrl, headingFo
     return [...items, { scene, from }];
   }, []);
   return <AbsoluteFill style={{ backgroundColor: primaryColor, fontFamily: bodyFont }}>
-    {backgroundMusicUrl ? <Audio src={backgroundMusicUrl} loop volume={(currentFrame) => currentFrame < 90 ? 0.04 : 0.1}/> : null}
+    {backgroundMusicUrl ? <Audio src={backgroundMusicUrl} loop volume={(currentFrame) => currentFrame < 90 ? 0.035 : 0.055}/> : null}
     {timedScenes.map(({ scene, from }) => <Sequence key={scene.id} from={from} durationInFrames={scene.durationInFrames}><Scene scene={scene} vertical={vertical} accentColor={accentColor} bodyFont={bodyFont}/></Sequence>)}
     <div style={{ position: "absolute", top: vertical ? 55 : 35, right: vertical ? 55 : 60, display: "flex", alignItems: "center", gap: 14, color: colors.paper, fontSize: vertical ? 26 : 20, letterSpacing: 3, textTransform: "uppercase" }}>{brandAssetUrl ? <Img src={brandAssetUrl} style={{ width: vertical ? 52 : 40, height: vertical ? 52 : 40, objectFit: "contain" }}/> : null}{brandName}</div>
     {frame < 90 ? <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", padding: vertical ? 80 : 160, background: `linear-gradient(135deg,${primaryColor}f2,${primaryColor}e8)`, color: "white", textAlign: "center" }}><div style={{ color: accentColor, fontSize: vertical ? 25 : 20, letterSpacing: 5, textTransform: "uppercase" }}>{hook}</div><h1 style={{ fontFamily: headingFont, fontSize: vertical ? 78 : 75, lineHeight: 1.04, margin: "30px 0" }}>{title}</h1></AbsoluteFill> : null}
