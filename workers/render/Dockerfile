@@ -8,4 +8,4 @@ COPY . .
 ENV NODE_ENV=production
 ENV REMOTION_BROWSER_EXECUTABLE=/usr/bin/chromium
 EXPOSE 8080
-CMD ["npx", "tsx", "workers/render/src/server.ts"]
+CMD ["/bin/sh", "-c", "npx prisma migrate deploy && exec npx tsx workers/render/src/server.ts"]
