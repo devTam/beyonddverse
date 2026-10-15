@@ -16,7 +16,7 @@ export class YouTubeOAuth implements OAuthProvider {
   authorizationUrl(state: string, redirectUri: string, codeChallenge?: string) {
     const { clientId } = credentials();
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", access_type: "offline", prompt: "consent", state, scope: "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly", ...(codeChallenge ? { code_challenge: codeChallenge, code_challenge_method: "S256" } : {}) }).toString();
+    url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", access_type: "offline", prompt: "consent", state, scope: "https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/yt-analytics.readonly", ...(codeChallenge ? { code_challenge: codeChallenge, code_challenge_method: "S256" } : {}) }).toString();
     return url;
   }
   async exchange(code: string, redirectUri: string, codeVerifier?: string) {
@@ -56,7 +56,14 @@ export class YouTubePublisher implements Publisher {
     if (!location) throw new Error("YouTube did not return a resumable upload URL.");
     const body = await mediaBuffer(media.url, 256 * 1024 * 1024 * 1024);
     const uploaded = await providerJson(location, { method: "PUT", headers: { "content-type": media.mimeType, "content-length": String(body.length) }, body }, VideoResponse);
-    return { externalId: uploaded.id, url: `https://youtu.be/${uploaded.id}`, status: uploaded.status?.uploadStatus ?? "uploaded", raw: uploaded };
+    if (media.thumbnailUrl) {
+      const thumbnail = await mediaBuffer(media.thumbnailUrl, 2 * 1024 * 1024);
+      await providerJson(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(uploaded.id)}&uploadType=media`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": media.thumbnailMimeType ?? "image/jpeg", "content-length": String(thumbnail.length) }, body: thumbnail }, z.object({}).passthrough());
+    }
+    for (const playlistId of media.playlistIds ?? []) {
+      await providerJson("https://www.googleapis.com/youtube/v3/playlistItems?part=snippet", { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ snippet: { playlistId, resourceId: { kind: "youtube#video", videoId: uploaded.id } } }) }, z.object({}).passthrough());
+    }
+    return { externalId: uploaded.id, url: `https://youtu.be/${uploaded.id}`, status: uploaded.status?.uploadStatus ?? "uploaded", raw: { ...uploaded, thumbnailApplied: Boolean(media.thumbnailUrl), playlists: media.playlistIds ?? [] } };
   }
   async reconcile(externalId: string, accessToken: string) {
     const result = await providerJson(`https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(externalId)}`, { headers: { authorization: `Bearer ${accessToken}` } }, z.object({ items: z.array(VideoResponse) }));

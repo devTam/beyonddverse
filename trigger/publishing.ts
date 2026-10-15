@@ -44,11 +44,15 @@ export const publishScheduledPost = schemaTask({
       const metadata = post.variant.metadata as Record<string, unknown>;
       const copy = (metadata.copy ?? {}) as Record<string, unknown>;
       const asset = post.variant.videoRender.asset;
+      const thumbnail = post.socialAccount.platform === "YOUTUBE" ? await prisma.asset.findFirst({ where: { projectId: post.projectId, kind: "THUMBNAIL", status: "APPROVED" }, orderBy: { createdAt: "desc" } }) : null;
       const result = await publisherFor(post.socialAccount).publish({
         url: createSignedDeliveryUrl(asset), bytes: Number(asset.bytes), mimeType: asset.mimeType,
         title: String(copy.title ?? metadata.title ?? "Beyond the Verse"),
         description: String(copy.caption ?? metadata.description ?? "Beyond the Verse Bible teaching"),
         scheduledAt: post.scheduledAt > new Date() ? post.scheduledAt : undefined,
+        thumbnailUrl: thumbnail ? createSignedDeliveryUrl(thumbnail) : undefined,
+        thumbnailMimeType: thumbnail?.mimeType,
+        playlistIds: post.socialAccount.platform === "YOUTUBE" ? (process.env.YOUTUBE_PLAYLIST_IDS ?? "").split(",").map((value) => value.trim()).filter(Boolean) : undefined,
       }, accessToken);
       await prisma.$transaction([
         prisma.publishedPost.create({ data: { scheduledPostId: post.id, externalId: result.externalId, url: result.url, publishedAt: new Date(), remoteStatus: result.status, rawResponse: result.raw as Prisma.InputJsonValue } }),
