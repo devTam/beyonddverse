@@ -4,6 +4,8 @@ import { decryptSecret, encryptSecret } from "../src/lib/security/encryption";
 import { oauthProvider, type SupportedProvider } from "../src/lib/publishing";
 import { collectPublicationAnalytics, reconcilePublishedPost } from "./publishing";
 import { deleteMedia } from "../src/lib/storage/cloudinary";
+import { createHash } from "node:crypto";
+import { getProductionSettings } from "../src/lib/settings";
 
 export const reconcileAndCollect = schedules.task({
   id: "reconcile-publications-and-collect-analytics",
@@ -90,6 +92,41 @@ export const reconcileRenderJobs = schedules.task({
       if (status === "SUCCEEDED") completed++; else failed++;
     }
     return { examined: runs.length, completed, failed };
+  },
+});
+
+export const deliverOperationalAlerts = schedules.task({
+  id: "deliver-operational-alerts",
+  cron: { pattern: "*/15 * * * *", window: "5m" },
+  maxDuration: 300,
+  run: async () => {
+    const settings = await getProductionSettings();
+    if (!settings.errorNotificationEmail) return { examined: 0, sent: 0, skipped: "No workspace recipient configured" };
+    const retryCutoff = new Date(Date.now() - 6 * 60 * 60_000);
+    const alerts = await prisma.operationalAlert.findMany({
+      where: { resolvedAt: null, deliveries: { none: { OR: [{ status: "SENT" }, { createdAt: { gte: retryCutoff } }] } } },
+      take: 50,
+      orderBy: { createdAt: "asc" },
+    });
+    const recipientHash = createHash("sha256").update(settings.errorNotificationEmail.toLowerCase()).digest("hex");
+    let sent = 0;
+    for (const alert of alerts) {
+      const attempt = await prisma.alertDeliveryAttempt.create({ data: { alertId: alert.id, channel: "EMAIL", recipientHash, status: "PENDING" } });
+      if (!process.env.RESEND_API_KEY || !process.env.ALERT_FROM_EMAIL) {
+        await prisma.alertDeliveryAttempt.update({ where: { id: attempt.id }, data: { status: "SKIPPED", completedAt: new Date(), error: "Notification provider is not configured" } });
+        continue;
+      }
+      try {
+        const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json", "idempotency-key": `alert-${alert.id}` }, body: JSON.stringify({ from: process.env.ALERT_FROM_EMAIL, to: [settings.errorNotificationEmail], subject: `[Beyond the Verse] ${alert.severity}: ${alert.category}`, text: `${alert.message}\n\nEntity: ${alert.entityType ?? "workspace"} ${alert.entityId ?? ""}\nCreated: ${alert.createdAt.toISOString()}` }) });
+        const body = await response.json().catch(() => ({})) as { id?: string; message?: string };
+        if (!response.ok) throw new Error(`Notification provider returned HTTP ${response.status}${body.message ? `: ${body.message}` : ""}`);
+        await prisma.alertDeliveryAttempt.update({ where: { id: attempt.id }, data: { status: "SENT", providerId: body.id, responseCode: response.status, completedAt: new Date() } });
+        sent++;
+      } catch (error) {
+        await prisma.alertDeliveryAttempt.update({ where: { id: attempt.id }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message.slice(0, 1_000) : "Alert delivery failed" } });
+      }
+    }
+    return { examined: alerts.length, sent };
   },
 });
 import "../src/lib/observability/node";

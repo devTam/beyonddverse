@@ -459,16 +459,19 @@ model PublishedPost {
 }
 
 model PublicationAttempt {
-  id              String        @id @default(uuid()) @db.Uuid
-  scheduledPostId String        @map("scheduled_post_id") @db.Uuid
-  attempt         Int
-  status          String
-  request         Json?
-  response        Json?
-  error           String?
-  startedAt       DateTime      @default(now()) @map("started_at")
-  completedAt     DateTime?     @map("completed_at")
-  scheduledPost   ScheduledPost @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
+  id                String        @id @default(uuid()) @db.Uuid
+  scheduledPostId   String        @map("scheduled_post_id") @db.Uuid
+  attempt           Int
+  status            String
+  request           Json?
+  response          Json?
+  error             String?
+  startedAt         DateTime      @default(now()) @map("started_at")
+  completedAt       DateTime?     @map("completed_at")
+  idempotencyKey    String?       @unique @map("idempotency_key")
+  remoteOperationId String?       @map("remote_operation_id")
+  resumableState    Json?         @map("resumable_state")
+  scheduledPost     ScheduledPost @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
 
   @@unique([scheduledPostId, attempt])
   @@map("publication_attempts")
@@ -558,18 +561,62 @@ model WorkspaceSetting {
 }
 
 model OperationalAlert {
-  id         String    @id @default(uuid()) @db.Uuid
+  id         String                 @id @default(uuid()) @db.Uuid
   severity   String
   category   String
   message    String
-  entityType String?   @map("entity_type")
-  entityId   String?   @map("entity_id")
+  entityType String?                @map("entity_type")
+  entityId   String?                @map("entity_id")
   metadata   Json?
-  resolvedAt DateTime? @map("resolved_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  resolvedAt DateTime?              @map("resolved_at")
+  createdAt  DateTime               @default(now()) @map("created_at")
+  deliveries AlertDeliveryAttempt[]
 
   @@index([resolvedAt, severity, createdAt])
   @@map("operational_alerts")
+}
+
+model AlertDeliveryAttempt {
+  id            String           @id @default(uuid()) @db.Uuid
+  alertId       String           @map("alert_id") @db.Uuid
+  channel       String
+  recipientHash String?          @map("recipient_hash")
+  status        String
+  providerId    String?          @map("provider_id")
+  responseCode  Int?             @map("response_code")
+  error         String?
+  createdAt     DateTime         @default(now()) @map("created_at")
+  completedAt   DateTime?        @map("completed_at")
+  alert         OperationalAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId, status])
+  @@map("alert_delivery_attempts")
+}
+
+model BackupTest {
+  id           String    @id @default(uuid()) @db.Uuid
+  source       String
+  target       String
+  status       String
+  startedAt    DateTime  @default(now()) @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  durationMs   Int?      @map("duration_ms")
+  verification Json?
+  error        String?
+
+  @@index([status, startedAt])
+  @@map("backup_tests")
+}
+
+model AcceptanceEvidence {
+  id          String   @id @default(uuid()) @db.Uuid
+  requirement String
+  status      String
+  evidence    Json
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+
+  @@index([status, recordedAt])
+  @@map("acceptance_evidence")
 }
 
 model RateLimitEntry {
