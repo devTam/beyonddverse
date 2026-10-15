@@ -17,11 +17,13 @@ export interface SpeechProvider {
   synthesize(text: string, options?: SpeechOptions): Promise<SpeechOutput>;
 }
 
-function pronunciationInstructions(serialized: string) {
+function narrationInstructions(serialized: string) {
   const dictionary = z.record(z.string(), z.string()).parse(JSON.parse(serialized));
   const entries = Object.entries(dictionary);
-  if (!entries.length) return undefined;
-  return `Use these pronunciations exactly: ${entries.map(([word, pronunciation]) => `${word}: ${pronunciation}`).join("; ")}.`;
+  const pronunciation = entries.length
+    ? ` Use these pronunciations exactly: ${entries.map(([word, value]) => `${word}: ${value}`).join("; ")}.`
+    : "";
+  return `Deliver this as a warm, compelling Bible teaching voiceover. Sound natural and sincere, with measured pacing, thoughtful pauses, and restrained emphasis. Never sound theatrical, rushed, or like an advertisement.${pronunciation}`;
 }
 
 export class AiGatewaySpeechProvider implements SpeechProvider {
@@ -38,7 +40,7 @@ export class AiGatewaySpeechProvider implements SpeechProvider {
       speed,
       outputFormat: "mp3",
       language: "en",
-      instructions: pronunciationInstructions(dictionary),
+      instructions: narrationInstructions(dictionary),
       maxRetries: 2,
       telemetry: { isEnabled: true, functionId: "scene-narration", recordInputs: false, recordOutputs: false },
     });

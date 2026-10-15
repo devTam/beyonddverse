@@ -1,28 +1,30 @@
 import "server-only";
 
-import { gateway, generateText } from "ai";
+import { gateway, generateImage } from "ai";
 import { z } from "zod";
 
 const ImageEnvironment = z.object({ AI_IMAGE_MODEL: z.string().min(1) });
 
 export type GeneratedVisual = { body: Buffer; mimeType: string; format: string; provider: string; model: string };
 
+export type ImageOptions = { model?: string; aspectRatio?: `${number}:${number}` };
+
 export interface ImageProvider {
-  generate(prompt: string, model?: string): Promise<GeneratedVisual>;
+  generate(prompt: string, options?: ImageOptions): Promise<GeneratedVisual>;
 }
 
 export class AiGatewayImageProvider implements ImageProvider {
-  async generate(prompt: string, configuredModel?: string) {
+  async generate(prompt: string, options?: ImageOptions) {
     const env = ImageEnvironment.parse(process.env);
-    const model = configuredModel ?? env.AI_IMAGE_MODEL;
-    const result = await generateText({
-      model: gateway(model),
-      prompt: `${prompt}\n\nGenerate one cinematic 16:9 image. Do not embed text, logos, watermarks, or depictions of God.`,
+    const model = options?.model ?? env.AI_IMAGE_MODEL;
+    const aspectRatio = options?.aspectRatio ?? "16:9";
+    const result = await generateImage({
+      model: gateway.image(model),
+      prompt: `${prompt}\n\nGenerate one cinematic ${aspectRatio} image. Do not embed text, logos, watermarks, or depictions of God.`,
+      aspectRatio,
       maxRetries: 2,
-      experimental_telemetry: { isEnabled: true, functionId: "scene-visual", recordInputs: false, recordOutputs: false },
     });
-    const image = result.files.find((file) => file.mediaType.startsWith("image/"));
-    if (!image) throw new Error("The image provider returned no image.");
+    const image = result.image;
     const format = image.mediaType.split("/")[1] || "png";
     return { body: Buffer.from(image.uint8Array), mimeType: image.mediaType, format, provider: "ai-gateway", model };
   }

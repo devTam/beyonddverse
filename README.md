@@ -41,10 +41,11 @@ Use the exact email configured in `ADMIN_EMAIL`. Other addresses are rejected. A
 - `BETTER_AUTH_URL`: `http://localhost:3000` locally and the canonical production URL on Vercel. Leave unset for previews.
 - `ADMIN_EMAIL`: sole administrator registration allowlist.
 - `CONTENT_PROVIDER`: `ai-gateway` in production or explicit `development` locally.
-- `AI_GATEWAY_MODEL` and `AI_GATEWAY_API_KEY`: structured writing model and local/external credentials.
-- `AI_TRANSCRIPTION_MODEL`: transcription-capable Gateway model.
-- `AI_SPEECH_MODEL`, `TTS_VOICE`, `TTS_SPEED`, and `PRONUNCIATION_DICTIONARY`: scene narration configuration.
-- `AI_IMAGE_MODEL`: scene visual generation model.
+- `AI_GATEWAY_MODEL` and `AI_GATEWAY_API_KEY`: structured writing model and local/external credentials. The production default is `openai/gpt-5.4`.
+- `AI_TRANSCRIPTION_MODEL`: transcription-capable Gateway model. The production default is `openai/gpt-4o-transcribe`.
+- `AI_SPEECH_MODEL`, `TTS_VOICE`, `TTS_SPEED`, and `PRONUNCIATION_DICTIONARY`: scene narration configuration. The defaults use `fish-audio/drama-3` and require a Fish Audio voice ID rather than an OpenAI voice name.
+- `AI_IMAGE_MODEL`: scene visual generation model. The production default is `openai/gpt-image-2.5-flare`.
+- `AI_THUMBNAIL_MODEL`: thumbnail generation/editing model. The production default is `openai/gpt-image-2.5-sunburst`.
 - `TRIGGER_PROJECT_REF`, `TRIGGER_SECRET_KEY`, `TRIGGER_PUBLIC_API_KEY`: Trigger.dev project/runtime credentials.
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER`: authenticated media storage.
 - `RENDER_WORKER_URL` and `RENDER_WORKER_SECRET`: HTTPS origin and shared secret for the dedicated renderer.

@@ -19,7 +19,7 @@ export const generateThumbnail = schemaTask({
       const settings = await getProductionSettings();
       const metadata = content.metadata as Record<string, unknown>;
       const prompt = String(metadata.thumbnailConcept ?? "Premium editorial Bible teaching thumbnail with dramatic warm gold light and generous negative space");
-      const visual = await getImageProvider().generate(`${prompt}. Create a high-contrast YouTube thumbnail background with no embedded text. Brand: ${settings.brandName}. Palette: ${settings.primaryColor}, ${settings.accentColor}.`, settings.imageModel);
+      const visual = await getImageProvider().generate(`${prompt}. Create a high-contrast YouTube thumbnail background with no embedded text. Brand: ${settings.brandName}. Palette: ${settings.primaryColor}, ${settings.accentColor}.`, { model: settings.thumbnailModel, aspectRatio: "16:9" });
       const asset = await uploadAndCreateAsset({ body: visual.body, kind: "THUMBNAIL", mimeType: visual.mimeType, filename: `thumbnail-${content.id}.${visual.format}`, projectId: payload.projectId });
       const storage = (asset.providerMetadata ?? {}) as Prisma.JsonObject;
       await prisma.$transaction([

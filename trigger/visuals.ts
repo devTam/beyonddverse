@@ -26,14 +26,15 @@ export const generateSceneVisual = schemaTask({
       if (scene.script.status !== "APPROVED") throw new Error("Visual generation requires an approved script.");
       const settings = await getProductionSettings();
       const model = settings.imageModel;
-      const inputHash = contentHash(JSON.stringify({ prompt: scene.visualPrompt, model, aspectRatio: "16:9", brand: settings.brandName, colors: [settings.primaryColor, settings.accentColor], regenerationId: payload.regenerationId }));
+      const aspectRatio = scene.script.kind.startsWith("SHORT_") ? "9:16" : "16:9";
+      const inputHash = contentHash(JSON.stringify({ prompt: scene.visualPrompt, model, aspectRatio, brand: settings.brandName, colors: [settings.primaryColor, settings.accentColor], regenerationId: payload.regenerationId }));
       const cached = await prisma.asset.findFirst({ where: { kind: "IMAGE", providerMetadata: { path: ["generation", "inputHash"], equals: inputHash } } });
       const asset = cached ?? await (async () => {
         await assertWithinBudget(payload.projectId);
-        const visual = await getImageProvider().generate(`${scene.visualPrompt}\nBrand: ${settings.brandName}. Palette: ${settings.primaryColor}, ${settings.accentColor}.`, model);
+        const visual = await getImageProvider().generate(`${scene.visualPrompt}\nBrand: ${settings.brandName}. Palette: ${settings.primaryColor}, ${settings.accentColor}.`, { model, aspectRatio });
         const created = await uploadAndCreateAsset({ body: visual.body, kind: "IMAGE", mimeType: visual.mimeType, filename: `scene-${scene.position}.${visual.format}`, projectId: payload.projectId });
         const storage = (created.providerMetadata ?? {}) as Prisma.JsonObject;
-        const updated = await prisma.asset.update({ where: { id: created.id }, data: { providerMetadata: { ...storage, generation: { inputHash, prompt: scene.visualPrompt, provider: visual.provider, model: visual.model, aspectRatio: "16:9" } } } });
+        const updated = await prisma.asset.update({ where: { id: created.id }, data: { providerMetadata: { ...storage, generation: { inputHash, prompt: scene.visualPrompt, provider: visual.provider, model: visual.model, aspectRatio } } } });
         await recordGenerationCost({ projectId: payload.projectId, provider: visual.provider, model: visual.model, operation: "IMAGE", amountMicros: configuredRate("AI_IMAGE_COST_USD") * 1_000_000, units: { images: 1 } });
         return updated;
       })();
