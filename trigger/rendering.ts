@@ -1,4 +1,4 @@
-import { schemaTask } from "@trigger.dev/sdk";
+import { schemaTask, wait } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { prisma } from "../src/lib/prisma";
 
@@ -25,8 +25,23 @@ async function execute(payload: z.infer<typeof RenderInput>) {
     if (current.status === "SUCCEEDED") return { renderId: current.id, assetId: current.assetId, reconciled: true };
     const response = await fetch(workerEndpoint(), { method: "POST", headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" }, body: JSON.stringify({ renderId: payload.renderId }), signal: AbortSignal.timeout(29 * 60 * 1_000) });
     if (!response.ok) throw new Error(`Render worker failed with HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
-    const parsed = z.object({ renderId: z.string().uuid(), assetId: z.string().uuid() }).parse(await response.json());
-    const result = { renderId: parsed.renderId, assetId: parsed.assetId };
+    z.object({ renderId: z.string().uuid() }).parse(await response.json());
+    let completed: Awaited<ReturnType<typeof prisma.videoRender.findUnique>> = null;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      completed = await prisma.videoRender.findUnique({ where: { id: payload.renderId } });
+      if (completed?.status === "SUCCEEDED") break;
+      if (completed?.status === "FAILED") throw new Error(completed.error ?? "Render worker reported a failure.");
+      await wait.for({ seconds: 15, idempotencyKey: `render-poll:${payload.renderId}:${attempt}`, idempotencyKeyTTL: "1d" });
+    }
+    if (!completed || completed.status !== "SUCCEEDED" || !completed.assetId) {
+      const pending = { renderId: payload.renderId, pendingReconciliation: true };
+      await prisma.$transaction([
+        prisma.workflowStep.update({ where: stepKey, data: { status: "WAITING" } }),
+        prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "WAITING", output: pending } }),
+      ]);
+      return pending;
+    }
+    const result = { renderId: completed.id, assetId: completed.assetId };
     await prisma.$transaction([
       prisma.workflowStep.update({ where: stepKey, data: { status: "SUCCEEDED", completedAt: new Date() } }),
       prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "SUCCEEDED", completedAt: new Date(), output: result } }),

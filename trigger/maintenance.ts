@@ -63,4 +63,33 @@ export const cleanupOrphanedAssets = schedules.task({
     return { examined: assets.length, deleted };
   },
 });
+
+export const reconcileRenderJobs = schedules.task({
+  id: "reconcile-railway-render-jobs",
+  cron: "*/10 * * * *",
+  maxDuration: 300,
+  run: async () => {
+    const runs = await prisma.workflowRun.findMany({
+      where: { type: { in: ["LONG_FORM_RENDER", "SHORT_FORM_RENDER"] }, status: { in: ["QUEUED", "RUNNING", "WAITING"] } },
+      include: { steps: { orderBy: { position: "asc" }, take: 1 } },
+      take: 100,
+      orderBy: { startedAt: { sort: "asc", nulls: "first" } },
+    });
+    let completed = 0;
+    let failed = 0;
+    for (const run of runs) {
+      const input = run.input as { renderId?: unknown };
+      if (typeof input.renderId !== "string") continue;
+      const render = await prisma.videoRender.findUnique({ where: { id: input.renderId } });
+      if (!render || !["SUCCEEDED", "FAILED"].includes(render.status)) continue;
+      const status = render.status === "SUCCEEDED" ? "SUCCEEDED" : "FAILED";
+      await prisma.$transaction([
+        prisma.workflowRun.update({ where: { id: run.id }, data: { status, completedAt: new Date(), error: render.error, output: render.status === "SUCCEEDED" ? { renderId: render.id, assetId: render.assetId, reconciled: true } : undefined } }),
+        ...(run.steps[0] ? [prisma.workflowStep.update({ where: { id: run.steps[0].id }, data: { status, completedAt: new Date(), error: render.error } })] : []),
+      ]);
+      if (status === "SUCCEEDED") completed++; else failed++;
+    }
+    return { examined: runs.length, completed, failed };
+  },
+});
 import "../src/lib/observability/node";

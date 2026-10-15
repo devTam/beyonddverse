@@ -7,6 +7,7 @@ import { Sentry } from "../../../src/lib/observability/node";
 const RequestSchema = z.object({ renderId: z.string().uuid() });
 const port = Number(process.env.PORT ?? 8080);
 let queue = Promise.resolve<unknown>(undefined);
+const activeJobs = new Map<string, Promise<unknown>>();
 
 createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
@@ -37,10 +38,18 @@ createServer(async (request, response) => {
       chunks.push(buffer);
     }
     const input = RequestSchema.parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-    const job = queue.then(() => executeRender(input.renderId));
-    queue = job.catch(() => undefined);
-    const result = await job;
-    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result));
+    const render = await prisma.videoRender.findUniqueOrThrow({ where: { id: input.renderId } });
+    if (render.status === "SUCCEEDED") {
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ renderId: render.id, assetId: render.assetId, status: render.status }));
+      return;
+    }
+    if (!activeJobs.has(input.renderId)) {
+      const job = queue.then(() => executeRender(input.renderId));
+      activeJobs.set(input.renderId, job);
+      queue = job.catch(() => undefined);
+      void job.finally(() => activeJobs.delete(input.renderId)).catch(() => undefined);
+    }
+    response.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify({ renderId: input.renderId, status: "ACCEPTED" }));
   } catch (error) {
     Sentry.captureException(error, { tags: { component: "render-worker" } });
     await Sentry.flush(2_000);
