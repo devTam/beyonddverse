@@ -8,6 +8,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { contentHash } from "@/lib/content/provider";
+import { publisherFor } from "@/lib/publishing";
+import { decryptSecret } from "@/lib/security/encryption";
 import type { contentPipeline } from "../../trigger/content-pipeline";
 import type { narrationPipeline } from "../../trigger/narration";
 import type { visualPipeline } from "../../trigger/visuals";
@@ -377,6 +379,19 @@ export async function createManualSocialAccount(formData: FormData) {
   const input = z.object({ platform: z.enum(["YOUTUBE", "TIKTOK", "INSTAGRAM", "FACEBOOK", "X"]), displayName: z.string().trim().min(2).max(100), timezone: z.string().trim().min(1).max(100) }).parse(Object.fromEntries(formData));
   const account = await prisma.socialAccount.upsert({ where: { platform_externalId: { platform: input.platform, externalId: `manual:${input.platform.toLowerCase()}` } }, create: { platform: input.platform, externalId: `manual:${input.platform.toLowerCase()}`, displayName: input.displayName, timezone: input.timezone, encryptedToken: null }, update: { displayName: input.displayName, timezone: input.timezone } });
   await prisma.auditLog.create({ data: { actorId: session.user.id, action: "MANUAL_SOCIAL_ACCOUNT_CONFIGURED", entityType: "SocialAccount", entityId: account.id, after: { platform: account.platform, displayName: account.displayName, timezone: account.timezone } } });
+  revalidatePath("/settings");
+  revalidatePath("/calendar");
+}
+
+export async function disconnectSocialAccount(formData: FormData) {
+  const session = await requireUser(await headers());
+  const accountId = z.string().uuid().parse(formData.get("accountId"));
+  const account = await prisma.socialAccount.findUniqueOrThrow({ where: { id: accountId } });
+  if (account.encryptedToken) await publisherFor(account).revoke(decryptSecret(account.encryptedToken));
+  await prisma.$transaction([
+    prisma.socialAccount.update({ where: { id: account.id }, data: { encryptedToken: null, encryptedRefreshToken: null, tokenExpiresAt: null, disconnectedAt: new Date() } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: "SOCIAL_ACCOUNT_DISCONNECTED", entityType: "SocialAccount", entityId: account.id, before: { platform: account.platform, connected: Boolean(account.encryptedToken) }, after: { connected: false } } }),
+  ]);
   revalidatePath("/settings");
   revalidatePath("/calendar");
 }

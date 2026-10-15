@@ -1,6 +1,6 @@
 import { Settings2 } from "lucide-react";
 import Link from "next/link";
-import { createManualSocialAccount, selectBackgroundMusic } from "@/app/actions";
+import { createManualSocialAccount, disconnectSocialAccount, selectBackgroundMusic } from "@/app/actions";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export default async function SettingsPage() {
     <div className="settings-grid"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">Distribution</p><h2>Publishing accounts</h2></div><Settings2 size={20}/></div>
       <div className="action-row"><Link className="button button-primary" href="/api/oauth/youtube">Connect YouTube</Link><Link className="button" href="/api/oauth/meta">Connect Instagram / Facebook</Link><Link className="button" href="/api/oauth/tiktok">Connect TikTok</Link></div>
       <form action={createManualSocialAccount} className="settings-form"><label>Platform<select name="platform" required><option>YOUTUBE</option><option>TIKTOK</option><option>INSTAGRAM</option><option>FACEBOOK</option><option>X</option></select></label><label>Display name<input name="displayName" required placeholder="Beyond the Verse"/></label><label>IANA time zone<input name="timezone" required defaultValue="Africa/Lagos" placeholder="Africa/Lagos"/></label><button className="button button-primary">Add manual account</button></form>
-      <div className="account-list">{accounts.map((account) => <article key={account.id}><strong>{account.displayName}</strong><span>{account.platform} · {account.timezone}</span><small>{account.encryptedToken && !account.disconnectedAt ? "Official connection" : "Manual publishing fallback"}</small></article>)}</div>
+      <div className="account-list">{accounts.map((account) => <article key={account.id}><strong>{account.displayName}</strong><span>{account.platform} · {account.timezone}</span><small>{account.encryptedToken && !account.disconnectedAt ? "Official connection" : "Manual publishing fallback"}</small>{!account.disconnectedAt ? <form action={disconnectSocialAccount}><input type="hidden" name="accountId" value={account.id}/><button className="button button-ghost">Disconnect</button></form> : null}</article>)}</div>
     </section><section className="panel"><p className="eyebrow">Production audio</p><h2>Background music</h2><form action={selectBackgroundMusic} className="settings-form"><label>Approved licensed track<select name="assetId" defaultValue={typeof selectedMusic?.value === "string" ? selectedMusic.value : ""} required><option value="" disabled>Select music</option>{music.map((asset) => <option key={asset.id} value={asset.id}>{asset.storageKey} · {asset.license ?? "license not recorded"}</option>)}</select></label><button className="button button-primary" disabled={!music.length}>Use for renders</button></form><p className="settings-copy">Music is mixed beneath narration with reduced volume during the opening title.</p></section><section className="panel"><p className="eyebrow">Providers</p><h2>Environment-managed configuration</h2><p className="settings-copy">AI Gateway, Trigger.dev, Cloudinary, authentication, and render-worker credentials are configured as encrypted deployment environment variables. They are never returned to this interface.</p></section></div>
   </div>;
 }
