@@ -24,7 +24,7 @@ Use `npm install` as install command and `npm run build` as build command.
 
 ## 4. Dedicated render worker
 
-Create a second Railway service from the same GitHub repository and set its config path to `workers/render/railway.json`. Use repository root as build context with at least 2 vCPU and 4 GB RAM. Set `DATABASE_URL`, the Cloudinary variables, `SENTRY_DSN`, and a strong `RENDER_WORKER_SECRET`. Expose its HTTPS domain and set that origin as `RENDER_WORKER_URL` in Trigger.dev. `/health` reports process liveness and `/ready` checks PostgreSQL connectivity.
+The `render-worker` Railway service is declared in `.railway/railway.ts` and follows the repository’s `main` branch. Its `RAILWAY_DOCKERFILE_PATH` points to `workers/render/Dockerfile`; variables remain unmanaged so secrets never enter IaC. Use at least 2 vCPU and 4 GB RAM. Expose its HTTPS domain and set that origin as `RENDER_WORKER_URL` in Trigger.dev. `/health` reports process liveness and `/ready` checks PostgreSQL connectivity.
 
 ## 5. First production release
 
