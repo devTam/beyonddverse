@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { Check, ImageIcon, Mic2, Play } from "lucide-react";
-import { approveScript, generateNarration, generateVisuals, renderShortVideo, updateSceneVisualApproval, regenerateSceneVisual, regenerateSceneNarration } from "@/app/actions";
+import { approveScript, generatePresenter, reviewPresenterVideo, generateNarration, generateVisuals, renderShortVideo, updateSceneVisualApproval, regenerateSceneVisual, regenerateSceneNarration } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/action-form";
 import { StatusPill } from "@/components/status-pill";
 
@@ -11,8 +11,11 @@ type ShortScript = {
   hook: string;
   body: string;
   status: string;
+  productionVersion?: number;
   scenes: Array<{
     id: string; position: number; narration: string; visualPrompt: string;
+    presentation?: string;
+    presenterVideo?: { id: string; status: string; url: string } | null;
     narrationUrl: string | null;
     visual: { id: string; status: string; url: string } | null;
   }>;
@@ -24,11 +27,11 @@ export function ShortsReview({ scripts, citationsValid }: { scripts: ShortScript
     <p className="review-help">Review each short’s script, listen to its narration, and approve its visuals here before rendering a vertical video.</p>
     <div className="short-grid">{scripts.map((script, index) => {
       const narrationReady = script.scenes.length > 0 && script.scenes.every((scene) => scene.narrationUrl);
-      const hasVisuals = script.scenes.length > 0 && script.scenes.every((scene) => scene.visual);
-      const visualsReady = script.scenes.length > 0 && script.scenes.every((scene) => scene.visual?.status === "APPROVED");
+      const hasVisuals = script.scenes.length > 0 && script.scenes.every((scene) => scene.presentation === "presenter" ? scene.presenterVideo : scene.visual);
+      const visualsReady = script.scenes.length > 0 && script.scenes.every((scene) => scene.presentation === "presenter" ? scene.presenterVideo?.status === "APPROVED" : scene.visual?.status === "APPROVED");
       return <article key={script.id} className="short-card" id={`script-${script.id}`}>
         <div className="short-heading"><span>Short {index + 1}</span><StatusPill status={script.status}/></div>
-        <h3>{script.title}</h3><blockquote>{script.hook}</blockquote><p>{script.body}</p>
+        <h3>{script.title}</h3><p style={{ whiteSpace: "pre-wrap" }}>{script.body}</p>
         <ol className="media-checklist" aria-label="Production progress">
           <li data-ready={script.status === "APPROVED"}>1. Script {script.status === "APPROVED" ? "approved" : "needs approval"}</li>
           <li data-ready={narrationReady}>2. Narration {narrationReady ? "ready to play" : "needed"}</li>
@@ -38,6 +41,7 @@ export function ShortsReview({ scripts, citationsValid }: { scripts: ShortScript
           <h4>Scene {scene.position}</h4>
           <p>{scene.narration}</p>
           {scene.narrationUrl ? <><label htmlFor={`audio-${scene.id}`}>Scene narration</label><audio id={`audio-${scene.id}`} controls preload="metadata" src={scene.narrationUrl}/></> : <p className="review-help">Narration has not been generated yet.</p>}
+          {scene.presenterVideo ? <div className="scene-presenter-review"><video controls preload="metadata" src={scene.presenterVideo.url}/>{scene.presenterVideo.status !== "APPROVED" ? <ActionForm action={reviewPresenterVideo.bind(null, scene.presenterVideo.id)}><SubmitButton className="button button-primary">Approve presenter clip</SubmitButton></ActionForm> : null}</div> : null}
           {scene.visual ? <div className="scene-visual-review">
             <a href={scene.visual.url} target="_blank" rel="noreferrer" aria-label={`Open short ${index + 1}, scene ${scene.position} visual`}><Image src={scene.visual.url} alt={`Short ${index + 1}, scene ${scene.position} visual`} width={540} height={960} unoptimized/></a>
             <StatusPill status={scene.visual.status}/>
@@ -45,13 +49,14 @@ export function ShortsReview({ scripts, citationsValid }: { scripts: ShortScript
               {scene.visual.status !== "APPROVED" ? <SubmitButton className="button button-primary" pendingLabel="Approving…">Approve visual</SubmitButton> : null}
               {scene.visual.status !== "REJECTED" ? <SubmitButton className="button button-ghost" formAction={updateSceneVisualApproval.bind(null, scene.id, "REJECTED")} pendingLabel="Rejecting…">Reject visual</SubmitButton> : null}
             </ActionForm> : null}
-          </div> : <p className="review-help">The generated visual will appear here for approval.</p>}
+          </div> : scene.presentation === "presenter" ? <p className="review-help">Your consistent presenter will narrate this scene.</p> : <p className="review-help">The generated visual will appear here for approval.</p>}
           {script.status === "APPROVED" && scene.narrationUrl ? <div className="action-row"><ActionForm action={regenerateSceneNarration.bind(null, scene.id)}><SubmitButton className="button button-ghost" pendingLabel="Starting narration…">Regenerate narration</SubmitButton></ActionForm>{scene.visual ? <ActionForm action={regenerateSceneVisual.bind(null, scene.id)}><SubmitButton className="button button-ghost" pendingLabel="Starting replacement…">Replace visual</SubmitButton></ActionForm> : null}</div> : null}
         </section>)}</div>
         <div className="short-actions">
-          {script.status !== "APPROVED" ? <ActionForm action={approveScript}><input type="hidden" name="scriptId" value={script.id}/><SubmitButton className="button button-primary" disabled={!citationsValid} pendingLabel="Approving…"><Check size={14}/> Approve script</SubmitButton></ActionForm> : null}
+          {script.status !== "APPROVED" ? <ActionForm action={approveScript}><input type="hidden" name="scriptId" value={script.id}/><SubmitButton className="button button-primary" disabled={script.productionVersion !== 2 && !citationsValid} pendingLabel="Approving…"><Check size={14}/> Approve script</SubmitButton></ActionForm> : null}
           {script.status === "APPROVED" && !narrationReady ? <ActionForm action={generateNarration}><input type="hidden" name="scriptId" value={script.id}/><SubmitButton className="button button-ghost" pendingLabel="Starting narration…"><Mic2 size={14}/> Generate narration</SubmitButton></ActionForm> : null}
-          {script.status === "APPROVED" && narrationReady && !hasVisuals ? <ActionForm action={generateVisuals}><input type="hidden" name="scriptId" value={script.id}/><SubmitButton className="button button-ghost" pendingLabel="Starting visuals…"><ImageIcon size={14}/> Create visuals</SubmitButton></ActionForm> : null}
+          {script.status === "APPROVED" && script.productionVersion === 2 && narrationReady ? <ActionForm action={generatePresenter}><input type="hidden" name="scriptId" value={script.id}/><SubmitButton className="button button-secondary">Generate / resume presenter</SubmitButton></ActionForm> : null}
+          {script.status === "APPROVED" && narrationReady && !hasVisuals && script.scenes.some((scene) => scene.presentation !== "presenter") ? <ActionForm action={generateVisuals}><input type="hidden" name="scriptId" value={script.id}/><SubmitButton className="button button-ghost" pendingLabel="Starting visuals…"><ImageIcon size={14}/> Create visuals</SubmitButton></ActionForm> : null}
           {script.status === "APPROVED" && narrationReady && visualsReady ? <ActionForm action={renderShortVideo}><input type="hidden" name="scriptId" value={script.id}/><SubmitButton className="button button-secondary" pendingLabel="Starting render…"><Play size={14}/> Render 9:16 video</SubmitButton></ActionForm> : null}
         </div>
       </article>;

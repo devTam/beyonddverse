@@ -48,7 +48,7 @@ export const cleanupOrphanedAssets = schedules.task({
   run: async () => {
     const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60_000);
     const assets = await prisma.asset.findMany({
-      where: { createdAt: { lt: cutoff }, status: { in: ["DRAFT", "REJECTED"] }, sourceFor: { none: {} }, usages: { none: {} }, narrations: { none: {} }, videoRenders: { none: {} } },
+      where: { createdAt: { lt: cutoff }, status: { in: ["DRAFT", "REJECTED"] }, sourceFor: { none: {} }, usages: { none: {} }, narrations: { none: {} }, videoRenders: { none: {} }, presenterPortraits: { none: {} }, presenterVideos: { none: {} }, presenterAudio: { none: {} } },
       take: 100,
       orderBy: { createdAt: "asc" },
     });

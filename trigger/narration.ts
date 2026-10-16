@@ -1,7 +1,8 @@
 import { metadata, queue, schemaTask } from "@trigger.dev/sdk";
 import { transcribe } from "ai";
 import { z } from "zod";
-import { contentHash } from "../src/lib/content/provider";
+import { assertCurrentScript, narrationSettings, narrationInputHash } from "../src/lib/avatar/production";
+import { alignNarration } from "../src/lib/audio/alignment";
 import { getSpeechProvider } from "../src/lib/audio/tts";
 import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
 import { prisma } from "../src/lib/prisma";
@@ -11,27 +12,6 @@ import { getProductionSettings } from "../src/lib/settings";
 const narrationQueue = queue({ name: "narration-generation", concurrencyLimit: 3 });
 const SceneInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), sceneId: z.string().uuid(), position: z.number().int().positive(), regenerationId: z.string().uuid().optional() });
 const PipelineInput = z.object({ workflowRunId: z.string().uuid(), projectId: z.string().uuid(), scriptId: z.string().uuid() });
-
-function wordTimings(text: string, durationMs: number) {
-  const words = text.split(/\s+/).filter(Boolean);
-  const weight = words.reduce((sum, word) => sum + Math.max(1, word.length), 0);
-  let cursor = 0;
-  return words.map((word) => { const startMs = cursor; cursor += Math.round(durationMs * Math.max(1, word.length) / weight); return { word, startMs, endMs: cursor }; });
-}
-
-function segmentWordTimings(segments: Array<{ text: string; startSecond: number; endSecond: number }>) {
-  return segments.flatMap((segment) => {
-    const words = segment.text.trim().split(/\s+/).filter(Boolean);
-    const durationMs = Math.max(1, (segment.endSecond - segment.startSecond) * 1_000);
-    const weight = words.reduce((sum, word) => sum + Math.max(1, word.length), 0);
-    let cursor = segment.startSecond * 1_000;
-    return words.map((word) => {
-      const startMs = Math.round(cursor);
-      cursor += durationMs * Math.max(1, word.length) / Math.max(weight, 1);
-      return { word, startMs, endMs: Math.round(cursor) };
-    });
-  });
-}
 
 export const generateSceneNarration = schemaTask({
   id: "generate-scene-narration",
@@ -46,23 +26,26 @@ export const generateSceneNarration = schemaTask({
       const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: payload.sceneId }, include: { script: true } });
       if (scene.script.status !== "APPROVED") throw new Error("Narration requires an approved script.");
       const settings = await getProductionSettings();
-      const voice = settings.narratorVoice;
-      const model = settings.speechModel;
-      const inputHash = contentHash(JSON.stringify({ narration: scene.narration, voice, model, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary, regenerationId: payload.regenerationId }));
+      await assertCurrentScript(scene.scriptId);
+      const config = narrationSettings(scene.script.presenterSnapshot, settings);
+      const { voice, model } = config;
+      const sourceHash = narrationInputHash(scene.narration, config);
+      const inputHash = narrationInputHash(scene.narration, config, payload.regenerationId);
       const cached = await prisma.narration.findFirst({ where: { inputHash }, include: { asset: true } });
       const narration = cached
-        ? await prisma.narration.create({ data: { sceneId: scene.id, assetId: cached.assetId, provider: cached.provider, voiceId: cached.voiceId, inputHash, timings: cached.timings ?? undefined } })
+        ? await prisma.narration.upsert({ where: { sceneId_inputHash: { sceneId: scene.id, inputHash } }, update: { createdAt: new Date() }, create: { sceneId: scene.id, assetId: cached.assetId, provider: cached.provider, voiceId: cached.voiceId, inputHash, sourceHash, timings: cached.timings ?? undefined } })
         : await (async () => {
             await assertWithinBudget(payload.projectId);
-            const speech = await getSpeechProvider().synthesize(scene.narration, { model, voice, speed: settings.speechSpeed, pronunciationDictionary: settings.pronunciationDictionary });
-            await assertWithinBudget(payload.projectId);
-            const alignment = await transcribe({ model: settings.transcriptionModel, audio: speech.audio, maxRetries: 2, telemetry: { isEnabled: true, functionId: "narration-alignment", recordInputs: false, recordOutputs: false } });
-            const asset = await uploadAndCreateAsset({ body: speech.audio, kind: "NARRATION", mimeType: speech.mimeType, filename: `scene-${scene.position}.${speech.format}`, projectId: payload.projectId });
-            const timings = alignment.segments.length ? segmentWordTimings(alignment.segments) : wordTimings(scene.narration, asset.durationMs ?? scene.durationMs);
-            const created = await prisma.narration.create({ data: { sceneId: scene.id, assetId: asset.id, provider: speech.provider, voiceId: speech.voiceId, inputHash, timings } });
+            const speech = await getSpeechProvider().synthesize(scene.narration, { model, voice, speed: config.speed, pronunciationDictionary: config.dictionary });
             await recordGenerationCost({ projectId: payload.projectId, provider: speech.provider, model, operation: "SPEECH", amountMicros: scene.narration.length * configuredRate("AI_SPEECH_COST_PER_MILLION_CHARACTERS"), units: { characters: scene.narration.length } });
-            const alignmentSeconds = alignment.durationInSeconds ?? (asset.durationMs ?? scene.durationMs) / 1_000;
-            await recordGenerationCost({ projectId: payload.projectId, provider: "vercel-ai-gateway", model: settings.transcriptionModel, operation: "NARRATION_ALIGNMENT", amountMicros: alignmentSeconds / 60 * configuredRate("AI_TRANSCRIPTION_COST_PER_MINUTE_USD") * 1_000_000, units: { durationInSeconds: alignmentSeconds } });
+            const asset = await uploadAndCreateAsset({ body: speech.audio, kind: "NARRATION", mimeType: speech.mimeType, filename: `scene-${scene.position}.${speech.format}`, projectId: payload.projectId });
+            if (!asset.durationMs) throw new Error("Narration audio has no measured duration.");
+            await assertWithinBudget(payload.projectId);
+            const alignment = await transcribe({ model: settings.alignmentModel, audio: speech.audio, providerOptions: { openai: { timestampGranularities: ["word"] } }, maxRetries: 2, telemetry: { isEnabled: true, functionId: "narration-alignment", recordInputs: false, recordOutputs: false } });
+            const alignmentSeconds = alignment.durationInSeconds ?? asset.durationMs / 1_000;
+            await recordGenerationCost({ projectId: payload.projectId, provider: "vercel-ai-gateway", model: settings.alignmentModel, operation: "NARRATION_ALIGNMENT", amountMicros: alignmentSeconds / 60 * (process.env.AI_ALIGNMENT_COST_PER_MINUTE_USD ? configuredRate("AI_ALIGNMENT_COST_PER_MINUTE_USD") : 0.006) * 1_000_000, units: { durationInSeconds: alignmentSeconds } });
+            const timings = alignNarration(scene.narration, alignment.segments, asset.durationMs);
+            const created = await prisma.narration.create({ data: { sceneId: scene.id, assetId: asset.id, provider: speech.provider, voiceId: speech.voiceId, inputHash, sourceHash, timings } });
             return created;
           })();
       await prisma.workflowStep.update({ where: stepKey, data: { status: "SUCCEEDED", completedAt: new Date() } });
@@ -105,7 +88,7 @@ export const narrationPipeline = schemaTask({
       for (const [index, scene] of script.scenes.entries()) {
         metadata.set("scene", index + 1);
         const settings = await getProductionSettings();
-        const configHash = contentHash(JSON.stringify({ narration: scene.narration, model: settings.speechModel, voice: settings.narratorVoice, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary }));
+        const configHash = narrationInputHash(scene.narration, narrationSettings(script.presenterSnapshot, settings));
         results.push(await generateSceneNarration.triggerAndWait({ ...payload, sceneId: scene.id, position: index + 1 }, { idempotencyKey: `narration:${scene.id}:${configHash}` }).unwrap());
       }
       await prisma.$transaction([

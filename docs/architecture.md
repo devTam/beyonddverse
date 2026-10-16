@@ -47,3 +47,27 @@ Beyond the Verse is currently a Next.js modular monolith backed by PostgreSQL/Pr
 - Every publish request has a unique idempotency key and platform failures remain independent.
 - Media binaries are not stored in PostgreSQL; records contain checksums, dimensions, provider IDs, and provenance.
 - Scheduled instants are UTC and accounts retain their display time zone.
+
+## Explanation-led productions (v2)
+
+The complete spoken lesson lives in ordered `ScriptScene.narration` values. `Script.body` is their derived transcript, not a second editable script. Generation faithfully polishes the supplied explanation; it does not impose an 8–12 minute duration. The development provider preserves the actual input instead of substituting a fixed Genesis lesson.
+
+Presenter profiles are versioned, reusable fictional identities. In Settings, generate or upload a fictional portrait, approve the image, save a presenter version, generate its speaking preview, and approve face and voice. A script approval snapshots that profile's identity, provider Look ID, voice, speech model, speed, pronunciations, and appearance. Changing workspace speech defaults does not change an approved production.
+
+Presenter scenes use HeyGen v3 `POST /videos` with Avatar IV and the exact scene narration audio URL. Cutaways use the same narrator configuration with approved images or uploaded video clips. Supporting clips loop silently if shorter than a scene. Presenter video audio is muted during composition; the approved narration track is mixed exactly once. Scene media requires review before rendering.
+
+`AvatarGeneration` persists input identity, audio and narration IDs, external job ID, submission time, cost estimate, and stored output. Requests carry HeyGen's `Idempotency-Key`; jobs resume polling/downloading without another submission. An uncertain submission older than 23 hours is blocked for reconciliation rather than risking a new charge after the provider's 24-hour replay window. Provider-declared failed jobs require inspection; transient status/download errors can resume the saved job. Estimated generation cost is recorded once at submission, including failed paid generations.
+
+Scripture cards resolve exact verse text from the script's selected translation, including references outside the project's chapter. References require an exact narration cue. Long excerpts paginate independently of subtitles; passages too long for the remaining scene must be shortened or cued earlier. Caption pages use measured text widths, a maximum of two lines and six words, and narration segment alignment. Transcription words must match the approved narration; missing or different speech blocks generation. The dedicated caption alignment model defaults to `openai/whisper-1` with word timestamps; ordinary source transcription keeps its separate model. If an alignment provider returns only longer segments, word timing within each segment is interpolated. Numeric spelling and punctuation may differ in transcription while the approved caption text is preserved. Final timing still needs listening review.
+
+New renders snapshot media and production settings and recheck them before marking success and before publishing. Superseded explanations, packages, scripts, narration configurations, or unapproved media cannot become a current successful production. Historical videos remain viewable and downloadable. Legacy scripts must be regenerated from their explanation for the presenter format.
+
+### Setup and verification
+
+- Apply migrations with `npx prisma migrate deploy`, then regenerate the client with `npx prisma generate`.
+- Configure server-only `HEYGEN_API_KEY` with funded API credits. Optional `HEYGEN_AVATAR_COST_PER_MINUTE_USD` defaults to 2.31; the workspace rate is editable in Settings. One-time Photo Avatar registration is tracked separately with `HEYGEN_AVATAR_CREATION_COST_USD` (default 1.32). Recheck [HeyGen's current pricing](https://help.heygen.com/en/articles/10060327-heygen-api-pricing-explained) before production. The [audio-to-video API](https://developers.heygen.com/audio-to-video) accepts the existing narration.
+- Set `NARRATION_ALIGNMENT_MODEL` to a timestamp-capable model (default `openai/whisper-1`) and maintain `AI_ALIGNMENT_COST_PER_MINUTE_USD` (default 0.006). Configure the existing AI Gateway, Cloudinary, Trigger.dev, and render-worker credentials. Deploy the new `generate-presenter` and `generate-presenter-portrait` tasks alongside the updated narration, visual, and rendering tasks.
+- Run `npm test`, `npx tsc --noEmit`, `npm run lint`, and `npm run build`.
+- Against a disposable, migrated, seeded local database, run `BTV_DISPOSABLE_DATABASE=1 DATABASE_URL=... node --conditions=react-server --import tsx scripts/verify-production.ts`. This writes fixture metadata only, verifies the complete lesson-to-render-input path, and exercises stale-media rejection. Never run it against live data.
+- On macOS ARM with Chrome installed, `npx tsx scripts/verify-teaching-video.ts` generates landscape/portrait frame previews and short transition clips under `/tmp/btv-video-verification`. It uses labeled local fixtures and a tone, makes no provider calls, and cannot verify human likeness, natural delivery, or lip sync.
+- Live acceptance remains: approve an original portrait and voice preview, generate a complete lesson through the configured providers, review identity continuity and lip sync, confirm Scripture/caption timing, and inspect both final aspect ratios and recorded cost.

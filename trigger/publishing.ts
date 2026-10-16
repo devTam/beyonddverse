@@ -20,6 +20,7 @@ export const publishScheduledPost = schemaTask({
     if (post.status === "CANCELED") return { canceled: true };
     if (post.status === "PUBLISHED" && post.publishedPost) return { published: true, reconciled: true };
     if (post.variant.status !== "APPROVED" || post.variant.videoRender?.status !== "SUCCEEDED" || !post.variant.videoRender.asset) throw new Error("Publication approval or completed media is missing.");
+    await assertRenderCurrent(post.variant.videoRender);
     await prisma.$transaction([
       prisma.workflowRun.update({ where: { id: payload.workflowRunId }, data: { status: "RUNNING", startedAt: new Date() } }),
       prisma.workflowStep.update({ where: { runId_position: { runId: payload.workflowRunId, position: 1 } }, data: { status: "RUNNING", attempts: { increment: 1 }, startedAt: new Date() } }),
@@ -107,3 +108,4 @@ export const collectPublicationAnalytics = schemaTask({
   },
 });
 import "../src/lib/observability/node";
+import { assertRenderCurrent } from "../src/lib/video/props";

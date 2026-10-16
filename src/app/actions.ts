@@ -7,6 +7,12 @@ import { tasks } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { buildProductionProps, productionJson, assertRenderCurrent } from "@/lib/video/props";
+import { activePresenterSnapshot, assertCurrentScript } from "@/lib/avatar/production";
+import { verifySceneScripture } from "@/lib/content/scripture";
+import { lessonTranscript, scenesFromText } from "@/lib/content/lesson";
+import { ACTIVE_PRESENTER_KEY, PresenterSnapshotSchema } from "@/lib/presenter-schema";
+import type { presenterPipeline, presenterPortrait } from "../../trigger/presenter";
 import { contentHash } from "@/lib/content/provider";
 import { publisherFor } from "@/lib/publishing";
 import { decryptSecret } from "@/lib/security/encryption";
@@ -31,7 +37,7 @@ const ScriptRevisionInput = z.object({
   scriptId: z.string().uuid(),
   title: z.string().trim().min(3).max(180),
   hook: z.string().trim().min(10).max(1_000),
-  body: z.string().trim().min(200),
+
 });
 
 const SceneRevisionInput = z.object({
@@ -39,6 +45,8 @@ const SceneRevisionInput = z.object({
   narration: z.string().trim().min(1),
   visualPrompt: z.string().trim().min(1),
   scriptureRef: z.string().trim().max(120).nullable(),
+  scriptureCue: z.string().trim().nullable(),
+  presentation: z.enum(["presenter", "cutaway"]),
   durationMs: z.number().int().min(1_000).max(300_000),
 });
 
@@ -126,8 +134,9 @@ export async function updateProductionSettings(formData: FormData) {
   try { pronunciationDictionary = JSON.parse(dictionaryText || "{}"); } catch { throw new Error("Pronunciation dictionary must be valid JSON."); }
   const optional = (name: string) => { const value = z.string().trim().parse(formData.get(name)); return value || null; };
   const settings = ProductionSettingsSchema.parse({
+    avatarRatePerMinute: Number(formData.get("avatarRatePerMinute") ?? 2.31),
     brandName: formData.get("brandName"), brandAssetId: optional("brandAssetId"), headingFont: formData.get("headingFont"), bodyFont: formData.get("bodyFont"), primaryColor: formData.get("primaryColor"), accentColor: formData.get("accentColor"), narratorVoice: formData.get("narratorVoice"), speechSpeed: Number(formData.get("speechSpeed")), pronunciationDictionary,
-    textModel: formData.get("textModel"), transcriptionModel: formData.get("transcriptionModel"), speechModel: formData.get("speechModel"), imageModel: formData.get("imageModel"), bibleTranslationCode: formData.get("bibleTranslationCode"), youtubePrivacy: formData.get("youtubePrivacy"), monthlyBudgetUsd: Number(formData.get("monthlyBudgetUsd")), generationLimit: Number(formData.get("generationLimit")), concurrencyLimit: Number(formData.get("concurrencyLimit")), videoQuality: formData.get("videoQuality"), errorNotificationEmail: optional("errorNotificationEmail"),
+    textModel: formData.get("textModel"), alignmentModel: formData.get("alignmentModel") ?? "openai/whisper-1", transcriptionModel: formData.get("transcriptionModel"), speechModel: formData.get("speechModel"), imageModel: formData.get("imageModel"), bibleTranslationCode: formData.get("bibleTranslationCode"), youtubePrivacy: formData.get("youtubePrivacy"), monthlyBudgetUsd: Number(formData.get("monthlyBudgetUsd")), generationLimit: Number(formData.get("generationLimit")), concurrencyLimit: Number(formData.get("concurrencyLimit")), videoQuality: formData.get("videoQuality"), errorNotificationEmail: optional("errorNotificationEmail"),
   });
   const existing = await prisma.workspaceSetting.findUnique({ where: { key: PRODUCTION_SETTINGS_KEY } });
   await prisma.$transaction([
@@ -217,13 +226,18 @@ export async function approveScript(formData: FormData) {
   const laterRevision = await prisma.script.findFirst({ where: { contentPackageId: script.contentPackageId, kind: script.kind, revision: { gt: script.revision } } });
   if (laterRevision) throw new Error("Only the latest script revision can be approved.");
   const report = script.contentPackage.validationReport as { valid?: boolean } | null;
-  if (!report?.valid) throw new Error("Resolve Scripture validation issues before approval.");
+  if (!script.scenes.length) throw new Error("The script needs narrated scenes before approval.");
+  const verifiedScenes = await verifySceneScripture(script.scenes, script.scriptureTranslation);
+  if (script.productionVersion === 2 && lessonTranscript(script.scenes) !== script.body.trim()) throw new Error("Transcript and scene narration differ. Save a new scene revision before approval.");
+  const presenterSnapshot = script.productionVersion === 2 ? await activePresenterSnapshot() : undefined;
+  if (script.productionVersion === 1 && !report?.valid) throw new Error("Resolve Scripture validation issues before approval.");
   await prisma.$transaction(async (tx) => {
     if (script.kind.startsWith("SHORT_") && !script.scenes.length) {
       const narration = `${script.hook} ${script.body}`;
       await tx.scriptScene.create({ data: { scriptId: script.id, position: 1, narration, visualType: "typography", visualPrompt: `Premium editorial Bible education visual for “${script.title}”. Warm gold light, dark neutral and deep green palette, generous negative space, no depiction of God, no embedded text.`, durationMs: Math.max(30_000, Math.min(60_000, Math.round(narration.split(/\s+/).length / 2.4 * 1_000))) } });
     }
-    await tx.script.update({ where: { id: scriptId }, data: { status: "APPROVED" } });
+    for (const [index, scene] of verifiedScenes.entries()) await tx.scriptScene.update({ where: { id: script.scenes[index].id }, data: { scriptureExcerpt: scene.scriptureExcerpt } });
+    await tx.script.update({ where: { id: scriptId }, data: { status: "APPROVED", ...(presenterSnapshot ? { presenterSnapshot } : {}) } });
     await tx.contentPackage.update({ where: { id: script.contentPackageId }, data: { status: "APPROVED" } });
     await tx.approvalEvent.create({ data: { scriptId, actorId: session.user.id, action: "APPROVED", note: "Approved for media production" } });
     await tx.chapterProject.update({ where: { id: script.contentPackage.projectId }, data: { status: "MEDIA_PRODUCTION", currentStage: 4 } });
@@ -238,13 +252,19 @@ export async function saveScriptRevision(formData: FormData) {
   const current = await prisma.script.findUniqueOrThrow({ where: { id: input.scriptId }, include: { scenes: { orderBy: { position: "asc" } } } });
   const latest = await prisma.script.findFirst({ where: { contentPackageId: current.contentPackageId, kind: current.kind }, orderBy: { revision: "desc" } });
   if (latest?.id !== current.id) throw new Error("This revision is no longer current. Reload before editing.");
-  const scenes = current.scenes.map((scene) => SceneRevisionInput.parse({
+  const sceneInput = current.scenes.map((scene) => SceneRevisionInput.parse({
     id: scene.id,
-    narration: formData.get(`scene.${scene.id}.narration`),
-    visualPrompt: formData.get(`scene.${scene.id}.visualPrompt`),
+    narration: formData.get(`scene.${scene.id}.narration`) ?? scene.narration,
+    visualPrompt: formData.get(`scene.${scene.id}.visualPrompt`) ?? scene.visualPrompt,
     scriptureRef: String(formData.get(`scene.${scene.id}.scriptureRef`) ?? "").trim() || null,
-    durationMs: Number(formData.get(`scene.${scene.id}.durationMs`)),
+    scriptureCue: String(formData.get(`scene.${scene.id}.scriptureCue`) ?? "").trim() || null,
+    presentation: formData.get(`scene.${scene.id}.presentation`) ?? scene.presentation,
+    durationMs: Number(formData.get(`scene.${scene.id}.durationMs`) ?? scene.durationMs),
   }));
+  const scenes = current.kind.startsWith("SHORT_") && formData.get("body")
+    ? scenesFromText(`${input.hook} ${String(formData.get("body"))}`)
+    : sceneInput;
+  await verifySceneScripture<{ narration: string; scriptureRef: string | null; scriptureCue: string | null }>(scenes, current.scriptureTranslation);
   const next = await prisma.$transaction(async (tx) => {
     const created = await tx.script.create({ data: {
       contentPackageId: current.contentPackageId,
@@ -253,17 +273,21 @@ export async function saveScriptRevision(formData: FormData) {
       revision: current.revision + 1,
       title: input.title,
       hook: input.hook,
-      body: input.body,
+      body: lessonTranscript(scenes),
+      productionVersion: 2, scriptureTranslation: current.scriptureTranslation,
       status: "PENDING",
-      scenes: { create: current.scenes.map((scene, index) => ({
-        position: scene.position,
+      scenes: { create: scenes.map((scene, index) => ({
+        position: index + 1,
         narration: scenes[index].narration,
-        visualType: scene.visualType,
+        visualType: "illustration",
         visualPrompt: scenes[index].visualPrompt,
         scriptureRef: scenes[index].scriptureRef,
+        scriptureCue: scenes[index].scriptureCue,
+        presentation: scenes[index].presentation,
         durationMs: scenes[index].durationMs,
       })) },
     } });
+    await tx.contentVariant.updateMany({ where: { contentPackageId: current.contentPackageId }, data: { status: "PENDING" } });
     await tx.script.update({ where: { id: current.id }, data: { status: current.status === "APPROVED" ? "DRAFT" : current.status } });
     await tx.contentPackage.update({ where: { id: current.contentPackageId }, data: { status: "PENDING" } });
     await tx.approvalEvent.create({ data: { scriptId: created.id, actorId: session.user.id, action: "REVISION_CREATED", note: `Revision ${created.revision} created from revision ${current.revision}` } });
@@ -300,10 +324,10 @@ export async function generateNarration(formData: FormData) {
   if (!process.env.TRIGGER_SECRET_KEY) throw new Error("TRIGGER_SECRET_KEY is required to start narration generation.");
   const scriptId = z.string().uuid().parse(formData.get("scriptId"));
   const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" } }, contentPackage: true } });
-  if (script.status !== "APPROVED") throw new Error("Approve the script before generating narration.");
+  await assertCurrentScript(script.id);
   if (!script.scenes.length) throw new Error("The script has no scenes to narrate.");
   const settings = await getProductionSettings();
-  const narrationConfigHash = contentHash(JSON.stringify({ model: settings.speechModel, voice: settings.narratorVoice, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary })).slice(0, 16);
+  const narrationConfigHash = contentHash(JSON.stringify({ presenter: script.presenterSnapshot, model: settings.speechModel, voice: settings.narratorVoice, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary })).slice(0, 16);
   const baseKey = `narration:${script.id}:${narrationConfigHash}`;
   const existing = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey } }, orderBy: { startedAt: "desc" } });
   if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
@@ -389,15 +413,19 @@ export async function renderLongVideo(formData: FormData) {
   if (!process.env.TRIGGER_SECRET_KEY) throw new Error("TRIGGER_SECRET_KEY is required to start rendering.");
   const scriptId = z.string().uuid().parse(formData.get("scriptId"));
   const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { include: { narrations: true, assetUsages: { where: { role: "PRIMARY_VISUAL" }, include: { asset: true } } } }, contentPackage: true } });
-  if (script.status !== "APPROVED") throw new Error("Approve the script before rendering.");
-  if (script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length || scene.assetUsages.some((usage) => usage.asset.status !== "APPROVED"))) throw new Error("Every scene needs narration and an approved visual before rendering.");
-  const idempotencyKey = `render:long:${script.id}:v1`;
-  const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
-  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
+  await assertCurrentScript(script.id);
+  if (script.kind !== "LONG_FORM") throw new Error("Choose a long-form script for this render.");
+  if (script.scenes.some((scene) => !scene.narrations.length || (scene.presentation !== "presenter" && (!scene.assetUsages.length || scene.assetUsages.some((usage) => usage.asset.status !== "APPROVED"))))) throw new Error("Every scene needs narration and an approved visual before rendering.");
+  const media = await buildProductionProps(script.id);
+  const mediaHash = contentHash(JSON.stringify(media));
+  const baseKey = `render:long:${script.id}:${mediaHash}`;
+  const existing = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey } }, orderBy: { startedAt: "desc" } });
+  const idempotencyKey = existing ? `${baseKey}:retry:${Date.now()}` : baseKey;
+  if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
   await assertWorkflowCapacity();
-  const render = await prisma.videoRender.create({ data: { format: "16:9", composition: "YouTubeLong", status: "QUEUED", input: { scriptId: script.id } } });
+  const render = await prisma.videoRender.create({ data: { format: "16:9", composition: "YouTubeLong", status: "QUEUED", input: { scriptId: script.id, mediaHash, media: productionJson(media) } } });
   const longCopy = (script.contentPackage.socialCopy as Record<string, unknown>).youtube ?? null;
-  await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "YOUTUBE", kind: "LONG_FORM_MASTER" } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "YOUTUBE", kind: "LONG_FORM_MASTER", metadata: { aspectRatio: "16:9", scriptId: script.id, title: script.title, copy: longCopy } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "16:9", scriptId: script.id, title: script.title, copy: longCopy } } });
+  await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "YOUTUBE", kind: "LONG_FORM_MASTER" } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "YOUTUBE", kind: "LONG_FORM_MASTER", metadata: { aspectRatio: "16:9", scriptId: script.id, title: script.title, copy: longCopy } }, update: { status: "PENDING", videoRenderId: render.id, metadata: { aspectRatio: "16:9", scriptId: script.id, title: script.title, copy: longCopy } } });
   const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "LONG_FORM_RENDER", status: "QUEUED", idempotencyKey, input: { scriptId: script.id, renderId: render.id }, steps: { create: { position: 1, name: "Render 16:9 master" } } } });
   try {
     const handle = await tasks.trigger<typeof renderLongFormVideo>("render-long-form-video", { workflowRunId: run.id, renderId: render.id }, { idempotencyKey, idempotencyKeyTTL: "30d", tags: [`project:${script.contentPackage.projectId}`, `script:${script.id}`, `render:${render.id}`] });
@@ -418,20 +446,23 @@ export async function renderShortVideo(formData: FormData) {
   const scriptId = z.string().uuid().parse(formData.get("scriptId"));
   const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { include: { narrations: true, assetUsages: { where: { role: "PRIMARY_VISUAL" }, include: { asset: true } } } }, contentPackage: true } });
   if (!script.kind.startsWith("SHORT_")) throw new Error("This render action only accepts short scripts.");
-  if (script.status !== "APPROVED") throw new Error("Approve the short before rendering.");
-  if (!script.scenes.length || script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length || scene.assetUsages.some((usage) => usage.asset.status !== "APPROVED"))) throw new Error("Every short scene needs narration and an approved visual before rendering.");
-  const idempotencyKey = `render:short:${script.id}:v1`;
-  const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
-  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
+  await assertCurrentScript(script.id);
+  if (!script.scenes.length || script.scenes.some((scene) => !scene.narrations.length || (scene.presentation !== "presenter" && (!scene.assetUsages.length || scene.assetUsages.some((usage) => usage.asset.status !== "APPROVED"))))) throw new Error("Every short scene needs narration and an approved visual before rendering.");
+  const media = await buildProductionProps(script.id);
+  const mediaHash = contentHash(JSON.stringify(media));
+  const baseKey = `render:short:${script.id}:${mediaHash}`;
+  const existing = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey } }, orderBy: { startedAt: "desc" } });
+  const idempotencyKey = existing ? `${baseKey}:retry:${Date.now()}` : baseKey;
+  if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
   await assertWorkflowCapacity();
-  const render = await prisma.videoRender.create({ data: { format: "9:16", composition: "YouTubeShort", status: "QUEUED", input: { scriptId: script.id } } });
-  await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "MASTER", kind: script.kind } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "MASTER", kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id } } });
+  const render = await prisma.videoRender.create({ data: { format: "9:16", composition: "YouTubeShort", status: "QUEUED", input: { scriptId: script.id, mediaHash, media: productionJson(media) } } });
+  await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "MASTER", kind: script.kind } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "MASTER", kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id } }, update: { status: "PENDING", videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id } } });
   const socialCopy = script.contentPackage.socialCopy as Record<string, unknown>;
   const copyKey: Record<string, string> = { YOUTUBE_SHORTS: "youtubeShorts", TIKTOK: "tiktok", INSTAGRAM_REELS: "instagram", FACEBOOK_REELS: "facebook", X: "x" };
   await Promise.all(["YOUTUBE_SHORTS", "TIKTOK", "INSTAGRAM_REELS", "FACEBOOK_REELS", "X"].map((platform) => prisma.contentVariant.upsert({
     where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform, kind: script.kind } },
     create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform, kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[copyKey[platform]] ?? null } },
-    update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[copyKey[platform]] ?? null } },
+    update: { status: "PENDING", videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id, copy: socialCopy[copyKey[platform]] ?? null } },
   })));
   const run = await prisma.workflowRun.create({ data: { projectId: script.contentPackage.projectId, type: "SHORT_FORM_RENDER", status: "QUEUED", idempotencyKey, input: { scriptId: script.id, renderId: render.id }, steps: { create: { position: 1, name: `Render ${script.kind.toLowerCase().replace("_", " ")} master` } } } });
   try {
@@ -474,6 +505,7 @@ export async function approveVariant(formData: FormData) {
   const variantId = z.string().uuid().parse(formData.get("variantId"));
   const variant = await prisma.contentVariant.findUniqueOrThrow({ where: { id: variantId }, include: { videoRender: true, contentPackage: true } });
   if (variant.videoRender?.status !== "SUCCEEDED" || !variant.videoRender.assetId) throw new Error("Only a completed render can receive final approval.");
+  await assertRenderCurrent(variant.videoRender);
   if (variant.platform === "YOUTUBE" && variant.kind === "LONG_FORM_MASTER") {
     const thumbnail = await prisma.asset.findFirst({ where: { projectId: variant.contentPackage.projectId, kind: "THUMBNAIL", status: "APPROVED" } });
     if (!thumbnail) throw new Error("Approve a YouTube thumbnail before approving the long-form master.");
@@ -493,6 +525,7 @@ export async function schedulePost(formData: FormData) {
   if (scheduledAt.getTime() < Date.now() + 60_000) throw new Error("Schedule at least one minute in the future.");
   const [variant, account] = await Promise.all([prisma.contentVariant.findUniqueOrThrow({ where: { id: input.variantId }, include: { contentPackage: true, videoRender: true } }), prisma.socialAccount.findUniqueOrThrow({ where: { id: input.socialAccountId } })]);
   if (variant.status !== "APPROVED" || variant.videoRender?.status !== "SUCCEEDED") throw new Error("Final media approval is required before scheduling.");
+  await assertRenderCurrent(variant.videoRender);
   const compatible = variant.platform === "MASTER" || variant.platform.startsWith(account.platform);
   if (!compatible) throw new Error("The selected variant is not compatible with this platform account.");
   const idempotencyKey = `publish:${variant.id}:${account.id}:${scheduledAt.toISOString()}`;
@@ -534,4 +567,120 @@ export async function reschedulePost(formData: FormData) {
   replacement.set("socialAccountId", post.socialAccountId);
   replacement.set("scheduledAt", input.scheduledAt);
   await schedulePost(replacement);
+}
+
+export async function savePresenterProfile(formData: FormData) {
+  await requireUser(await headers());
+  const input = z.object({ name: z.string().trim().min(2).max(80), portraitAssetId: z.string().uuid(), voiceId: z.string().trim().min(1), appearance: z.string().trim().min(10).max(1000), providerAvatarId: z.string().trim().min(1).max(200).nullable() }).parse({ ...Object.fromEntries(formData), providerAvatarId: String(formData.get("providerAvatarId") ?? "").trim() || null });
+  const portrait = await prisma.asset.findUniqueOrThrow({ where: { id: input.portraitAssetId } });
+  if (portrait.kind !== "IMAGE" || portrait.status !== "APPROVED") throw new Error("Choose an approved portrait image.");
+  const settings = await getProductionSettings();
+  const latest = await prisma.presenterProfile.findFirst({ orderBy: { revision: "desc" } });
+  await prisma.presenterProfile.create({ data: { ...input, revision: (latest?.revision ?? 0) + 1, speechModel: settings.speechModel, speechSpeed: settings.speechSpeed, pronunciationDictionary: settings.pronunciationDictionary } });
+  revalidatePath("/settings");
+}
+
+export async function approvePresenterProfile(formData: FormData) {
+  const session = await requireUser(await headers());
+  const profileId = z.string().uuid().parse(formData.get("profileId"));
+  const profile = await prisma.presenterProfile.findUniqueOrThrow({ where: { id: profileId } });
+  PresenterSnapshotSchema.parse(profile);
+  const job = await prisma.avatarGeneration.findUniqueOrThrow({ where: { inputHash: contentHash(`preview:${profile.id}`) } });
+  if (job.status !== "SUCCEEDED" || !job.assetId) throw new Error("Generate and review this profile's preview before approval.");
+  await prisma.$transaction([
+    prisma.presenterProfile.update({ where: { id: profileId }, data: { status: "APPROVED", approvedAt: new Date() } }),
+    prisma.asset.update({ where: { id: job.assetId }, data: { status: "APPROVED" } }),
+    prisma.workspaceSetting.upsert({ where: { key: ACTIVE_PRESENTER_KEY }, create: { key: ACTIVE_PRESENTER_KEY, value: profileId }, update: { value: profileId } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: "PRESENTER_APPROVED", entityType: "PresenterProfile", entityId: profileId, after: { previewAssetId: job.assetId, revision: profile.revision } } }),
+  ]);
+  revalidatePath("/settings"); revalidatePath("/studio/genesis-1");
+}
+
+export async function generatePresenter(formData: FormData) {
+  await requireUser(await headers());
+  if (!process.env.HEYGEN_API_KEY || !process.env.TRIGGER_SECRET_KEY) throw new Error("Configure HEYGEN_API_KEY and TRIGGER_SECRET_KEY before generating a presenter.");
+  const profileId = formData.get("profileId") ? z.string().uuid().parse(formData.get("profileId")) : undefined;
+  const scriptId = formData.get("scriptId") ? z.string().uuid().parse(formData.get("scriptId")) : undefined;
+  const script = scriptId ? await assertCurrentScript(scriptId) : null;
+  const projectId = script?.contentPackage.projectId ?? z.string().uuid().parse(formData.get("projectId"));
+  if (!script && !profileId) throw new Error("Select a profile or script.");
+  await assertWorkflowCapacity();
+  const baseKey = `presenter:${scriptId ?? profileId}`;
+  const active = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey }, status: { in: ["QUEUED", "RUNNING", "WAITING"] } } });
+  if (active) redirect(`/studio/genesis-1?workflow=${active.id}&project=${projectId}`);
+  const idempotencyKey = `${baseKey}:${crypto.randomUUID()}`;
+  const run = await prisma.workflowRun.create({ data: { projectId, type: "PRESENTER", idempotencyKey, input: { ...(scriptId ? { scriptId } : { profileId: profileId! }) } } });
+  try {
+    const handle = await tasks.trigger<typeof presenterPipeline>("generate-presenter", { workflowRunId: run.id, projectId, scriptId, profileId }, { idempotencyKey, tags: [`project:${projectId}`] });
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
+  } catch (error) {
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", error: error instanceof Error ? error.message : "Unable to start presenter generation" } }); throw error;
+  }
+  redirect(`/studio/genesis-1?workflow=${run.id}&project=${projectId}${scriptId ? `&script=${scriptId}` : ""}`);
+}
+
+export async function generatePresenterPortrait(formData: FormData) {
+  await requireUser(await headers());
+  const input = z.object({ projectId: z.string().uuid(), prompt: z.string().trim().min(20).max(2000) }).parse(Object.fromEntries(formData));
+  await assertWorkflowCapacity();
+  const idempotencyKey = `portrait:${crypto.randomUUID()}`;
+  const run = await prisma.workflowRun.create({ data: { projectId: input.projectId, type: "PRESENTER_PORTRAIT", idempotencyKey, input } });
+  try {
+    const handle = await tasks.trigger<typeof presenterPortrait>("generate-presenter-portrait", { workflowRunId: run.id, ...input }, { idempotencyKey });
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
+  } catch (error) {
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", error: error instanceof Error ? error.message : "Unable to start portrait generation" } }); throw error;
+  }
+  redirect(`/studio/genesis-1?workflow=${run.id}&project=${input.projectId}`);
+}
+
+export async function selectSceneVisual(sceneId: string, formData: FormData) {
+  await requireUser(await headers());
+  const assetId = z.string().uuid().parse(formData.get(`scene.${sceneId}.assetId`));
+  const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: sceneId } });
+  await assertCurrentScript(scene.scriptId);
+  if (scene.presentation === "presenter") throw new Error("Choose a cutaway scene to attach supporting media.");
+  const asset = await prisma.asset.findUniqueOrThrow({ where: { id: assetId } });
+  if (!["IMAGE", "VIDEO"].includes(asset.kind) || asset.status !== "APPROVED") throw new Error("Choose approved image or video media.");
+  await prisma.$transaction([
+    prisma.assetUsage.deleteMany({ where: { sceneId, role: "PRIMARY_VISUAL" } }),
+    prisma.assetUsage.create({ data: { sceneId, assetId, role: "PRIMARY_VISUAL" } }),
+    prisma.contentVariant.updateMany({ where: { contentPackage: { scripts: { some: { id: scene.scriptId } } } }, data: { status: "PENDING" } }),
+  ]);
+  revalidatePath("/studio/genesis-1");
+}
+
+export async function reviewPresenterVideo(assetId: string) {
+  const session = await requireUser(await headers());
+  assetId = z.string().uuid().parse(assetId);
+  const job = await prisma.avatarGeneration.findFirstOrThrow({ where: { assetId, status: "SUCCEEDED", sceneId: { not: null } } });
+  const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: job.sceneId! } });
+  await assertCurrentScript(scene.scriptId);
+  await prisma.$transaction([
+    prisma.asset.update({ where: { id: assetId }, data: { status: "APPROVED" } }),
+    prisma.auditLog.create({ data: { actorId: session.user.id, action: "PRESENTER_CLIP_APPROVED", entityType: "Asset", entityId: assetId, after: { sceneId: scene.id, narrationId: job.narrationId } } }),
+  ]);
+  revalidatePath("/studio/genesis-1");
+}
+
+export async function regenerateScenePresenter(sceneId: string) {
+  await requireUser(await headers());
+  const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: z.string().uuid().parse(sceneId) } });
+  const script = await assertCurrentScript(scene.scriptId);
+  if (scene.presentation !== "presenter") throw new Error("Choose a presenter scene.");
+  const latestJob = await prisma.avatarGeneration.findFirst({ where: { sceneId }, orderBy: { createdAt: "desc" } });
+  if (latestJob && !["SUCCEEDED", "FAILED"].includes(latestJob.status)) throw new Error("Resume the existing presenter job before requesting a replacement.");
+  await assertWorkflowCapacity();
+  const replacementId = crypto.randomUUID();
+  const idempotencyKey = `presenter-replacement:${sceneId}:${replacementId}`;
+  const projectId = script.contentPackage.projectId;
+  const run = await prisma.workflowRun.create({ data: { projectId, type: "PRESENTER_REPLACEMENT", idempotencyKey, input: { scriptId: script.id, sceneId, replacementId } } });
+  try {
+    const handle = await tasks.trigger<typeof presenterPipeline>("generate-presenter", { workflowRunId: run.id, projectId, scriptId: script.id, replacementSceneId: sceneId, replacementId }, { idempotencyKey });
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { output: { triggerRunId: handle.id } } });
+  } catch (error) {
+    await prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", error: error instanceof Error ? error.message : "Unable to dispatch replacement" } }); throw error;
+  }
+  revalidatePath("/studio/genesis-1");
+  redirect(`/studio/genesis-1?workflow=${run.id}&script=${script.id}`);
 }

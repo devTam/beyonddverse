@@ -4,13 +4,21 @@ export const VideoSceneSchema = z.object({
   id: z.string(),
   narration: z.string(),
   narrationUrl: z.string().url(),
-  visualUrl: z.string().url(),
+  visualUrl: z.string().url().optional(),
+  visualMediaType: z.enum(["image", "video"]).default("image").optional(),
+  visualDurationInFrames: z.number().int().positive().optional(),
+  presentation: z.enum(["presenter", "cutaway"]).optional(),
+  presenterVideoUrl: z.string().url().optional(),
+  scriptureCards: z.array(z.object({ reference: z.string(), text: z.string(), translation: z.string(), startMs: z.number(), endMs: z.number() })).optional(),
   scriptureRef: z.string().nullable(),
   durationInFrames: z.number().int().positive(),
   timings: z.array(z.object({ word: z.string(), startMs: z.number(), endMs: z.number() })).optional(),
 });
 
 export const VideoInputSchema = z.object({
+  productionVersion: z.number().int().optional(),
+  scriptRevision: z.number().int().optional(),
+  presenterProfileId: z.string().optional(),
   title: z.string(),
   hook: z.string(),
   brandName: z.string().default("Beyond the Verse"),

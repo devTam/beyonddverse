@@ -4,8 +4,10 @@ import { join, resolve } from "node:path";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import type { Prisma } from "@prisma/client";
-import type { VideoInput } from "../../../packages/video/src/types";
-import { createSignedDeliveryUrl, uploadAndCreateAsset } from "../../../src/lib/storage/cloudinary";
+import { VideoInputSchema } from "../../../packages/video/src/types";
+import { buildProductionProps } from "../../../src/lib/video/props";
+import { contentHash } from "../../../src/lib/content/provider";
+import { uploadAndCreateAsset } from "../../../src/lib/storage/cloudinary";
 import { prisma } from "../../../src/lib/prisma";
 import { normalizeAudio, probeMedia } from "./ffmpeg";
 import { getProductionSettings } from "../../../src/lib/settings";
@@ -16,29 +18,7 @@ function getBundle() {
   return bundlePromise;
 }
 
-type RenderInput = { scriptId: string };
-
-async function buildProps(scriptId: string): Promise<VideoInput> {
-  const [script, musicSetting, settings] = await Promise.all([
-    prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" }, include: { narrations: { orderBy: { createdAt: "desc" }, take: 1, include: { asset: true } }, assetUsages: { where: { role: "PRIMARY_VISUAL" }, take: 1, include: { asset: true } } } } } }),
-    prisma.workspaceSetting.findUnique({ where: { key: "backgroundMusicAssetId" } }),
-    getProductionSettings(),
-  ]);
-  if (script.status !== "APPROVED") throw new Error("Rendering requires an approved script.");
-  const scenes = script.scenes.map((scene) => {
-    const narration = scene.narrations[0];
-    const visual = scene.assetUsages[0];
-    if (!narration || !visual) throw new Error(`Scene ${scene.position} is missing narration or a visual.`);
-    const durationMs = narration.asset.durationMs ?? scene.durationMs;
-    const timings = Array.isArray(narration.timings) ? narration.timings as Array<{ word: string; startMs: number; endMs: number }> : undefined;
-    return { id: scene.id, narration: scene.narration, narrationUrl: createSignedDeliveryUrl(narration.asset), visualUrl: createSignedDeliveryUrl(visual.asset), scriptureRef: scene.scriptureRef, durationInFrames: Math.max(30, Math.ceil(durationMs / 1_000 * 30)), timings };
-  });
-  const musicAssetId = typeof musicSetting?.value === "string" ? musicSetting.value : undefined;
-  const musicAsset = musicAssetId ? await prisma.asset.findUnique({ where: { id: musicAssetId } }) : null;
-  const brandAsset = settings.brandAssetId ? await prisma.asset.findUnique({ where: { id: settings.brandAssetId } }) : null;
-  if (musicAsset && (musicAsset.kind !== "MUSIC" || musicAsset.status !== "APPROVED")) throw new Error("Configured background music must be an approved MUSIC asset.");
-  return { title: script.title, hook: script.hook, brandName: settings.brandName, brandAssetUrl: brandAsset ? createSignedDeliveryUrl(brandAsset) : undefined, headingFont: settings.headingFont, bodyFont: settings.bodyFont, primaryColor: settings.primaryColor, accentColor: settings.accentColor, backgroundMusicUrl: musicAsset ? createSignedDeliveryUrl(musicAsset) : undefined, fps: 30, scenes };
-}
+type RenderInput = { scriptId: string; mediaHash?: string; media?: unknown };
 
 export async function executeRender(renderId: string) {
   const render = await prisma.videoRender.findUniqueOrThrow({ where: { id: renderId } });
@@ -47,7 +27,10 @@ export async function executeRender(renderId: string) {
   await prisma.videoRender.update({ where: { id: render.id }, data: { status: "RUNNING", error: null } });
   const directory = await mkdtemp(join(tmpdir(), "btv-render-"));
   try {
-    const [serveUrl, inputProps] = await Promise.all([getBundle(), buildProps(input.scriptId)]);
+    const currentProps = await buildProductionProps(input.scriptId);
+    if (!input.mediaHash || contentHash(JSON.stringify(currentProps)) !== input.mediaHash) throw new Error("Media or production settings changed after render dispatch. Start a new render.");
+    const inputProps = VideoInputSchema.parse(input.media);
+    const serveUrl = await getBundle();
     const composition = await selectComposition({ serveUrl, id: render.composition, inputProps });
     const output = join(directory, `${render.id}.mp4`);
     const normalizedOutput = join(directory, `${render.id}-normalized.mp4`);
@@ -63,6 +46,8 @@ export async function executeRender(renderId: string) {
     const expectedDuration = composition.durationInFrames / composition.fps;
     if (Math.abs(inspected.format.duration - expectedDuration) > Math.max(1, expectedDuration * 0.02)) throw new Error("Rendered duration differs from the timing-derived composition duration.");
     const asset = await uploadAndCreateAsset({ body: await readFile(normalizedOutput), kind: "VIDEO", mimeType: "video/mp4", filename: `${render.composition}-${render.id}.mp4` });
+    const finalProps = await buildProductionProps(input.scriptId);
+    if (contentHash(JSON.stringify(finalProps)) !== input.mediaHash) throw new Error("Production changed during rendering. Review and render the current revision.");
     await prisma.videoRender.update({ where: { id: render.id }, data: { status: "SUCCEEDED", assetId: asset.id } });
     return { renderId: render.id, assetId: asset.id, durationSeconds: inspected.format.duration };
   } catch (error) {

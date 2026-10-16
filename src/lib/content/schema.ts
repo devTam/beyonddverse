@@ -1,20 +1,22 @@
 import { z } from "zod";
 
 export const GeneratedPackageSchema = z.object({
-  outline: z.array(z.object({ heading: z.string().min(1), purpose: z.string().min(1) })).min(3),
+  outline: z.array(z.object({ heading: z.string().min(1), purpose: z.string().min(1) })).min(1),
   script: z.object({
     title: z.string().min(1),
     hook: z.string().min(1),
-    body: z.string().min(200),
+    body: z.string().min(1),
     scenes: z.array(
       z.object({
         narration: z.string().min(1),
         visualType: z.enum(["scripture", "illustration", "typography", "map", "timeline"]),
         visualPrompt: z.string().min(1),
+        presentation: z.enum(["presenter", "cutaway"]),
         scriptureRef: z.string().nullable(),
+        scriptureCue: z.string().nullable(),
         durationMs: z.number().int().positive(),
       }),
-    ).min(3),
+    ).min(1),
   }),
   shorts: z.array(z.object({ title: z.string(), hook: z.string(), body: z.string() })).length(3),
   socialCopy: z.object({

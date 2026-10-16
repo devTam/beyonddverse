@@ -1,6 +1,7 @@
 import { metadata, queue, schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
+import { assertCurrentScript } from "../src/lib/avatar/production";
 import { contentHash } from "../src/lib/content/provider";
 import { getImageProvider } from "../src/lib/visuals/image-provider";
 import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
@@ -24,6 +25,16 @@ export const generateSceneVisual = schemaTask({
     try {
       const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: payload.sceneId }, include: { script: true } });
       if (scene.script.status !== "APPROVED") throw new Error("Visual generation requires an approved script.");
+      await assertCurrentScript(scene.scriptId);
+      if (scene.script.productionVersion === 2 && scene.presentation === "presenter") {
+        await prisma.workflowStep.update({ where: stepKey, data: { status: "SUCCEEDED", completedAt: new Date() } });
+        return { assetId: null, cached: false };
+      }
+      const selected = await prisma.assetUsage.findFirst({ where: { sceneId: scene.id, role: "PRIMARY_VISUAL", asset: { status: "APPROVED" } }, include: { asset: true } });
+      if (selected && !payload.regenerationId) {
+        await prisma.workflowStep.update({ where: stepKey, data: { status: "SUCCEEDED", completedAt: new Date() } });
+        return { assetId: selected.assetId, cached: true };
+      }
       const settings = await getProductionSettings();
       const model = settings.imageModel;
       const aspectRatio = scene.script.kind.startsWith("SHORT_") ? "9:16" : "16:9";

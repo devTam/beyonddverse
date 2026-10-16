@@ -46,14 +46,15 @@ export function WorkflowStatus({ workflowId, projectId }: { workflowId: string; 
   const canceled = workflow?.status === "CANCELED";
   const finished = workflow ? terminalStatuses.has(workflow.status) : false;
   const target = workflow?.input?.scriptId;
-  const resultHref = `/studio/genesis-1?project=${projectId}${target ? `&script=${target}` : ""}${workflow?.type.includes("RENDER") ? "#video-output" : target ? `#script-${target}` : "#long-form"}`;
+  const presenterSetup = workflow?.type.startsWith("PRESENTER") && !target;
+  const resultHref = presenterSetup ? "/settings" : `/studio/genesis-1?project=${projectId}${target ? `&script=${target}` : ""}${workflow?.type.includes("RENDER") ? "#video-output" : target ? `#script-${target}` : "#long-form"}`;
 
   return <section className="workflow-banner" aria-live="polite">
     <div className="workflow-title">
       {workflow?.status === "FAILED" || canceled ? <CircleAlert size={18}/> : workflow?.status === "SUCCEEDED" ? <CircleCheck size={18}/> : <LoaderCircle className="spin" size={18}/>}
       <div><strong>{workflow?.status === "FAILED" ? "Production failed" : canceled ? "Production canceled" : workflow?.status === "SUCCEEDED" ? "Production complete" : "Production in progress"}</strong><small>{requestError ?? workflow?.error ?? (finished ? "Review the result below or start the next production step." : "This job continues safely if you close the page.")}</small></div>
     </div>
-    {workflow?.status === "SUCCEEDED" ? <Link href={resultHref} className="workflow-result">View generated content →</Link> : null}
+    {workflow?.status === "SUCCEEDED" ? <Link href={resultHref} className="workflow-result">{presenterSetup ? "Review presenter in Settings →" : "View generated content →"}</Link> : null}
     {workflow ? <ol>{workflow.steps.map((step) => <li key={step.position} data-status={step.status}><i/>{step.name}<span>{step.status.toLowerCase()}</span></li>)}</ol> : null}
   </section>;
 }

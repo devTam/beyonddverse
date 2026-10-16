@@ -5,11 +5,13 @@ export { ProductionSettingsSchema, PRODUCTION_SETTINGS_KEY } from "@/lib/setting
 function environmentDefaults(): ProductionSettings {
   const dictionary = (() => { try { return JSON.parse(process.env.PRONUNCIATION_DICTIONARY ?? "{}"); } catch { return {}; } })();
   return ProductionSettingsSchema.parse({
+    avatarRatePerMinute: Number(process.env.HEYGEN_AVATAR_COST_PER_MINUTE_USD ?? 2.31),
     brandName: process.env.BRAND_NAME ?? "Beyond the Verse",
     narratorVoice: process.env.TTS_VOICE ?? "933563129e564b19a115bedd57b7406a",
     speechSpeed: Number(process.env.TTS_SPEED ?? 1),
     pronunciationDictionary: dictionary,
     textModel: process.env.AI_GATEWAY_MODEL ?? "openai/gpt-5.4",
+    alignmentModel: process.env.NARRATION_ALIGNMENT_MODEL ?? "openai/whisper-1",
     transcriptionModel: process.env.AI_TRANSCRIPTION_MODEL ?? "openai/gpt-4o-transcribe",
     speechModel: process.env.AI_SPEECH_MODEL ?? "fish-audio/drama-3",
     imageModel: process.env.AI_IMAGE_MODEL ?? "openai/gpt-image-2.5-flare",

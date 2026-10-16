@@ -4,12 +4,12 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getProductionSettings } from "@/lib/settings";
 
-export async function assertWithinBudget(projectId: string) {
+export async function assertWithinBudget(projectId: string, estimatedUsd = 0) {
   const { monthlyBudgetUsd: monthlyBudget, generationLimit } = await getProductionSettings();
   const start = new Date();
   start.setUTCDate(1); start.setUTCHours(0, 0, 0, 0);
   const spent = await prisma.generationCost.aggregate({ where: { createdAt: { gte: start } }, _sum: { amountMicros: true } });
-  if ((spent._sum.amountMicros ?? 0n) >= BigInt(Math.round(monthlyBudget * 1_000_000))) throw new Error("The monthly generation budget has been reached.");
+  if ((spent._sum.amountMicros ?? 0n) + BigInt(Math.round(estimatedUsd * 1_000_000)) >= BigInt(Math.round(monthlyBudget * 1_000_000))) throw new Error("The monthly generation budget has been reached.");
   const operations = await prisma.generationCost.count({ where: { createdAt: { gte: start } } });
   if (operations >= generationLimit) throw new Error("The monthly generation operation limit has been reached.");
   const project = await prisma.chapterProject.findUnique({ where: { id: projectId }, select: { id: true } });

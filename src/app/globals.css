@@ -31,3 +31,13 @@ body:has(.auth-page) .sidebar{display:none}body:has(.auth-page) .app-shell{margi
 @media(min-width:761px) and (max-width:1050px){.nav-text{display:none}.nav-progress{position:absolute;right:2px}.nav-item{position:relative}}
 @media(max-width:760px){.sidebar{position:sticky;top:0;z-index:20;flex-wrap:wrap;height:auto;min-height:65px}.mobile-nav-toggle{display:grid;place-items:center;background:transparent;border:1px solid #52675a;border-radius:7px;color:white;padding:7px;margin-right:12px;cursor:pointer}.sidebar.sidebar-open nav{display:block;order:4;width:100%;padding:16px 0 0}.sidebar.sidebar-open .nav-label{display:block;font-size:10px}.sidebar.sidebar-open .nav-item{justify-content:flex-start;font-size:13px}.sidebar.sidebar-open .nav-text{display:inline}.sidebar.sidebar-open .sidebar-bottom>.nav-item{display:flex;position:absolute;right:16px;top:72px;font-size:12px}.sidebar.sidebar-open .sidebar-bottom>.nav-item .nav-text{display:inline}.sidebar.sidebar-open .sidebar-bottom>.nav-item .nav-progress{display:none}.studio-sections{position:static}.studio-sections a{flex-grow:1;text-align:center}[id^="script-"],#shorts,#long-form,#video-output{scroll-margin-top:85px}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}.button,.nav-item,.chapter-button{transition:none}}
+
+/* Explanation-led production review */
+.lesson-transcript, .presenter-settings details { margin: 18px 0; }
+.lesson-transcript summary, .scripture-card summary, .presenter-settings summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
+.production-estimate { padding: 18px; border: 1px solid var(--border, #d9d5ca); border-radius: 12px; line-height: 1.6; background: #faf7ef; }
+.scene-presenter-review video, .scene-visual-review video, .presenter-profile video { display: block; width: 100%; max-height: 440px; border-radius: 10px; background: #16231c; margin: 12px 0; }
+.presenter-profile { padding: 20px 0; border-top: 1px solid #ddd8cd; }
+.presenter-profile img { max-width: 100%; height: auto; border-radius: 10px; }
+.scene-editor-list blockquote { padding: 16px 20px; margin: 16px 0; border-left: 3px solid #c89b3c; background: #faf7ef; line-height: 1.5; }
+.scene-editor-list blockquote small { display: block; margin-top: 8px; }

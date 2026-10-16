@@ -2,6 +2,8 @@ import { logger, metadata, queue, schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { getContentProvider } from "../src/lib/content/provider";
+import { lessonTranscript } from "../src/lib/content/lesson";
+import { verifySceneScripture, resolveScripture } from "../src/lib/content/scripture";
 import { GeneratedPackageSchema } from "../src/lib/content/schema";
 import { prisma } from "../src/lib/prisma";
 import { assertWithinBudget, recordGenerationCost, tokenCostMicros } from "../src/lib/costs";
@@ -83,14 +85,6 @@ export const generateStructuredPackage = schemaTask({
   },
 });
 
-function referencedVerses(reference: string) {
-  const match = reference.match(/:(\d+)(?:[–-](\d+))?$/);
-  if (!match) return [];
-  const start = Number(match[1]);
-  const end = Number(match[2] ?? match[1]);
-  return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
-}
-
 export const validateScriptureReferences = schemaTask({
   id: "validate-scripture-references",
   schema: PipelineInput.extend({ generated: GeneratedPackageSchema }),
@@ -98,18 +92,15 @@ export const validateScriptureReferences = schemaTask({
   run: async (payload) => {
     await startStep(payload.workflowRunId, 3);
     try {
-      const verses = await prisma.bibleVerse.findMany({ where: { chapter: { projects: { some: { id: payload.projectId } } } }, select: { number: true } });
-      const available = new Set(verses.map((verse) => verse.number));
-      const citations = payload.generated.citations.map((citation) => {
-        const numbers = referencedVerses(citation.reference);
-        const supported = numbers.length > 0 && numbers.every((number) => available.has(number));
-        return { ...citation, supported, note: supported ? "Reference exists in the stored chapter text." : "Reference could not be resolved in the stored chapter text." };
-      });
-      const sceneReferences = payload.generated.script.scenes
-        .filter((scene) => scene.scriptureRef)
-        .map((scene) => scene.scriptureRef as string)
-        .map((reference) => ({ reference, supported: referencedVerses(reference).every((number) => available.has(number)) }));
-      const report = { citations, sceneReferences, valid: citations.every((item) => item.supported) && sceneReferences.every((item) => item.supported) };
+      const { bibleTranslationCode } = await getProductionSettings();
+      const citations = await Promise.all(payload.generated.citations.map(async (citation) => {
+        try { await resolveScripture(citation.reference, bibleTranslationCode); return { ...citation, supported: true }; }
+        catch { return { ...citation, supported: false }; }
+      }));
+      let sceneError: string | null = null;
+      try { await verifySceneScripture(payload.generated.script.scenes, bibleTranslationCode); }
+      catch (error) { sceneError = error instanceof Error ? error.message : "Invalid scene Scripture."; }
+      const report = { citations, sceneError, translation: bibleTranslationCode, valid: !sceneError && citations.every((item) => item.supported) };
       await finishStep(payload.workflowRunId, 3);
       return report;
     } catch (error) {
@@ -126,6 +117,7 @@ export const persistContentPackage = schemaTask({
   run: async (payload) => {
     await startStep(payload.workflowRunId, 4);
     try {
+      const { bibleTranslationCode } = await getProductionSettings();
       const latest = await prisma.contentPackage.findFirst({ where: { projectId: payload.projectId }, orderBy: { version: "desc" } });
       const contentPackage = await prisma.contentPackage.create({
         data: {
@@ -140,17 +132,20 @@ export const persistContentPackage = schemaTask({
           scripts: { create: [
             {
               kind: "LONG_FORM", revision: 1, title: payload.generated.script.title, hook: payload.generated.script.hook,
-              body: payload.generated.script.body, status: "PENDING",
+              body: lessonTranscript(payload.generated.script.scenes), status: "PENDING", productionVersion: 2, scriptureTranslation: bibleTranslationCode,
               scenes: { create: payload.generated.script.scenes.map((scene, index) => ({ ...scene, position: index + 1 })) },
             },
             ...payload.generated.shorts.map((short, index) => ({
               kind: `SHORT_${index + 1}`,
               revision: 1,
+              productionVersion: 2, scriptureTranslation: bibleTranslationCode,
               ...short,
+              body: `${short.hook} ${short.body}`,
               status: "PENDING" as const,
               scenes: { create: [{
                 position: 1,
                 narration: `${short.hook} ${short.body}`,
+                presentation: "presenter",
                 visualType: "typography",
                 visualPrompt: `Premium editorial Bible education visual for “${short.title}”. Warm gold light, dark neutral and deep green palette, generous negative space, no depiction of God, no embedded text.`,
                 scriptureRef: null,

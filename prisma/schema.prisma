@@ -204,6 +204,7 @@ model ChapterProject {
   workflowRuns    WorkflowRun[]
   scheduledPosts  ScheduledPost[]
   generationCosts GenerationCost[]
+  avatarGenerations AvatarGeneration[]
 
   @@index([chapterId, status])
   @@map("chapter_projects")
@@ -279,6 +280,9 @@ model Script {
   contentPackage   ContentPackage  @relation(fields: [contentPackageId], references: [id], onDelete: Cascade)
   parent           Script?         @relation("ScriptRevisions", fields: [parentId], references: [id], onDelete: SetNull)
   revisions        Script[]        @relation("ScriptRevisions")
+  productionVersion Int           @default(1) @map("production_version")
+  presenterSnapshot Json?         @map("presenter_snapshot")
+  scriptureTranslation String     @default("WEB") @map("scripture_translation")
   scenes           ScriptScene[]
   approvalEvents   ApprovalEvent[]
 
@@ -296,9 +300,13 @@ model ScriptScene {
   visualPrompt String       @map("visual_prompt")
   scriptureRef String?      @map("scripture_ref")
   durationMs   Int          @map("duration_ms")
+  presentation String       @default("cutaway")
+  scriptureCue String?      @map("scripture_cue")
+  scriptureExcerpt String?  @map("scripture_excerpt")
   script       Script       @relation(fields: [scriptId], references: [id], onDelete: Cascade)
   narrations   Narration[]
   assetUsages  AssetUsage[]
+  avatarGenerations AvatarGeneration[]
 
   @@unique([scriptId, position])
   @@map("script_scenes")
@@ -326,6 +334,9 @@ model Asset {
   usages           AssetUsage[]
   narrations       Narration[]
   videoRenders     VideoRender[]
+  presenterPortraits PresenterProfile[]
+  presenterVideos AvatarGeneration[] @relation("PresenterVideo")
+  presenterAudio AvatarGeneration[] @relation("PresenterAudio")
 
   @@index([kind, createdAt])
   @@map("assets")
@@ -350,10 +361,13 @@ model Narration {
   provider  String
   voiceId   String      @map("voice_id")
   inputHash String      @map("input_hash")
+  sourceHash String?    @map("source_hash")
   timings   Json?
   createdAt DateTime    @default(now()) @map("created_at")
   scene     ScriptScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
   asset     Asset       @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  avatarGenerations AvatarGeneration[]
 
   @@unique([sceneId, inputHash])
   @@map("narrations")
@@ -657,4 +671,52 @@ model AuditLog {
 
   @@index([entityType, entityId, createdAt])
   @@map("audit_logs")
+}
+
+// Content fields are immutable: editing a presenter creates a new version.
+model PresenterProfile {
+  id String @id @default(uuid()) @db.Uuid
+  revision Int @unique
+  name String
+  portraitAssetId String @map("portrait_asset_id") @db.Uuid
+  voiceId String @map("voice_id")
+  speechModel String @map("speech_model")
+  speechSpeed Float @map("speech_speed")
+  pronunciationDictionary Json @map("pronunciation_dictionary")
+  appearance String
+  providerAvatarId String? @map("provider_avatar_id")
+  status ApprovalStatus @default(PENDING)
+  createdAt DateTime @default(now()) @map("created_at")
+  approvedAt DateTime? @map("approved_at")
+  portraitAsset Asset @relation(fields: [portraitAssetId], references: [id], onDelete: Restrict)
+  generations AvatarGeneration[]
+  @@map("presenter_profiles")
+}
+
+model AvatarGeneration {
+  id String @id @default(uuid()) @db.Uuid
+  inputHash String @unique @map("input_hash")
+  profileId String @map("profile_id") @db.Uuid
+  projectId String @map("project_id") @db.Uuid
+  sceneId String? @map("scene_id") @db.Uuid
+  narrationId String? @map("narration_id") @db.Uuid
+  audioAssetId String @map("audio_asset_id") @db.Uuid
+  assetId String? @map("asset_id") @db.Uuid
+  externalJobId String? @unique @map("external_job_id")
+  status WorkflowStatus @default(QUEUED)
+  error String?
+  durationMs Int @map("duration_ms")
+  ratePerMinute Float @map("rate_per_minute")
+  submissionStartedAt DateTime? @map("submission_started_at")
+  costRecorded Boolean @default(false) @map("cost_recorded")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  profile PresenterProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  project ChapterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scene ScriptScene? @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  narration Narration? @relation(fields: [narrationId], references: [id], onDelete: Restrict)
+  audioAsset Asset @relation("PresenterAudio", fields: [audioAssetId], references: [id], onDelete: Restrict)
+  asset Asset? @relation("PresenterVideo", fields: [assetId], references: [id], onDelete: Restrict)
+  @@index([sceneId, status])
+  @@map("avatar_generations")
 }
