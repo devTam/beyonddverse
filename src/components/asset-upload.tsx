@@ -1,6 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ActionForm, SubmitButton } from "@/components/action-form";
 
 type Sign = { cloudName: string; apiKey: string; timestamp: number; signature: string; folder: string; public_id: string; type: string; resourceType: string };
 export function AssetUpload() {
@@ -14,5 +15,5 @@ export function AssetUpload() {
     const registered = await fetch("/api/assets", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "register", kind, filename: file.name, mimeType: file.type, license: license || undefined, upload: await cloud.json() }) }); if (!registered.ok) throw new Error(await registered.text());
     setMessage("Uploaded for review."); router.refresh();
   }
-  return <form action={(data) => void submit(data).catch((error) => setMessage(error instanceof Error ? error.message : "Upload failed"))} className="asset-upload"><label>Asset type<select name="kind"><option value="IMAGE">Image</option><option value="MUSIC">Music</option></select></label><label>File<input name="file" type="file" accept="image/*,audio/*" required/></label><label>License / source<input name="license" placeholder="Owned, commissioned, or license URL"/></label><button className="button button-primary">Upload to Cloudinary</button>{message ? <p>{message}</p> : null}</form>;
+  return <ActionForm action={submit} className="asset-upload"><label>Asset type<select name="kind"><option value="IMAGE">Image</option><option value="MUSIC">Music</option></select></label><label>File<input name="file" type="file" accept="image/*,audio/*" required/></label><label>License / source<input name="license" placeholder="Owned, commissioned, or license URL"/></label><SubmitButton className="button button-primary" pendingLabel="Uploading…">Upload to Cloudinary</SubmitButton>{message ? <p>{message}</p> : null}</ActionForm>;
 }

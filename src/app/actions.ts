@@ -79,6 +79,7 @@ export async function updateAssetApproval(formData: FormData) {
     prisma.auditLog.create({ data: { actorId: session.user.id, action: `ASSET_${input.status}`, entityType: "Asset", entityId: asset.id, before: { status: asset.status }, after: { status: input.status } } }),
   ]);
   revalidatePath("/assets");
+  revalidatePath("/studio/genesis-1");
 }
 
 export async function updateSceneVisualApproval(sceneId: string, status: string) {
@@ -90,6 +91,7 @@ export async function updateSceneVisualApproval(sceneId: string, status: string)
     prisma.auditLog.create({ data: { actorId: session.user.id, action: `ASSET_${input.status}`, entityType: "Asset", entityId: usage.assetId, before: { status: usage.asset.status }, after: { status: input.status, sceneId: input.sceneId } } }),
   ]);
   revalidatePath("/studio/genesis-1");
+  revalidatePath("/assets");
 }
 
 export async function resolveOperationalAlert(formData: FormData) {
@@ -304,7 +306,7 @@ export async function generateNarration(formData: FormData) {
   const narrationConfigHash = contentHash(JSON.stringify({ model: settings.speechModel, voice: settings.narratorVoice, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary })).slice(0, 16);
   const baseKey = `narration:${script.id}:${narrationConfigHash}`;
   const existing = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey } }, orderBy: { startedAt: "desc" } });
-  if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
   await assertWorkflowCapacity();
   const idempotencyKey = existing ? `${baseKey}:retry:${Date.now()}` : baseKey;
   const run = await prisma.workflowRun.create({ data: {
@@ -322,7 +324,7 @@ export async function generateNarration(formData: FormData) {
     await prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unable to dispatch narration" } });
     throw error;
   }
-  redirect(`/studio/genesis-1?workflow=${run.id}`);
+  redirect(`/studio/genesis-1?workflow=${run.id}&script=${script.id}`);
 }
 
 export async function generateVisuals(formData: FormData) {
@@ -336,7 +338,7 @@ export async function generateVisuals(formData: FormData) {
   const visualConfigHash = contentHash(JSON.stringify({ model: settings.imageModel, brand: settings.brandName, colors: [settings.primaryColor, settings.accentColor] })).slice(0, 16);
   const baseKey = `visuals:${script.id}:${visualConfigHash}`;
   const existing = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey } }, orderBy: { startedAt: "desc" } });
-  if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
   await assertWorkflowCapacity();
   const idempotencyKey = existing ? `${baseKey}:retry:${Date.now()}` : baseKey;
   const run = await prisma.workflowRun.create({ data: {
@@ -350,7 +352,7 @@ export async function generateVisuals(formData: FormData) {
     await prisma.workflowRun.update({ where: { id: run.id }, data: { status: "FAILED", completedAt: new Date(), error: error instanceof Error ? error.message : "Unable to dispatch visual generation" } });
     throw error;
   }
-  redirect(`/studio/genesis-1?workflow=${run.id}`);
+  redirect(`/studio/genesis-1?workflow=${run.id}&script=${script.id}`);
 }
 
 export async function regenerateSceneNarration(sceneId: string) {
@@ -391,7 +393,7 @@ export async function renderLongVideo(formData: FormData) {
   if (script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length || scene.assetUsages.some((usage) => usage.asset.status !== "APPROVED"))) throw new Error("Every scene needs narration and an approved visual before rendering.");
   const idempotencyKey = `render:long:${script.id}:v1`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
-  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
   await assertWorkflowCapacity();
   const render = await prisma.videoRender.create({ data: { format: "16:9", composition: "YouTubeLong", status: "QUEUED", input: { scriptId: script.id } } });
   const longCopy = (script.contentPackage.socialCopy as Record<string, unknown>).youtube ?? null;
@@ -407,7 +409,7 @@ export async function renderLongVideo(formData: FormData) {
     ]);
     throw error;
   }
-  redirect(`/studio/genesis-1?workflow=${run.id}`);
+  redirect(`/studio/genesis-1?workflow=${run.id}&script=${script.id}`);
 }
 
 export async function renderShortVideo(formData: FormData) {
@@ -420,7 +422,7 @@ export async function renderShortVideo(formData: FormData) {
   if (!script.scenes.length || script.scenes.some((scene) => !scene.narrations.length || !scene.assetUsages.length || scene.assetUsages.some((usage) => usage.asset.status !== "APPROVED"))) throw new Error("Every short scene needs narration and an approved visual before rendering.");
   const idempotencyKey = `render:short:${script.id}:v1`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
-  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
+  if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}&script=${script.id}`);
   await assertWorkflowCapacity();
   const render = await prisma.videoRender.create({ data: { format: "9:16", composition: "YouTubeShort", status: "QUEUED", input: { scriptId: script.id } } });
   await prisma.contentVariant.upsert({ where: { contentPackageId_platform_kind: { contentPackageId: script.contentPackageId, platform: "MASTER", kind: script.kind } }, create: { contentPackageId: script.contentPackageId, videoRenderId: render.id, platform: "MASTER", kind: script.kind, metadata: { aspectRatio: "9:16", scriptId: script.id } }, update: { videoRenderId: render.id, metadata: { aspectRatio: "9:16", scriptId: script.id } } });
@@ -442,7 +444,7 @@ export async function renderShortVideo(formData: FormData) {
     ]);
     throw error;
   }
-  redirect(`/studio/genesis-1?workflow=${run.id}`);
+  redirect(`/studio/genesis-1?workflow=${run.id}&script=${script.id}`);
 }
 
 export async function createManualSocialAccount(formData: FormData) {

@@ -18,6 +18,7 @@ export async function GET(request: Request, context: RouteContext<"/api/workflow
       startedAt: true,
       completedAt: true,
       output: true,
+      input: true,
       steps: { orderBy: { position: "asc" }, select: { name: true, position: true, status: true, attempts: true, error: true } },
     },
   });

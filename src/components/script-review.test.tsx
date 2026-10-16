@@ -9,6 +9,7 @@ vi.mock("@/app/actions", () => ({
 }));
 vi.mock("@/components/status-pill", () => ({ StatusPill: () => null }));
 
+import { SubmitButton } from "./action-form";
 import { ScriptReview } from "./script-review";
 import { regenerateSceneNarration, regenerateSceneVisual, updateSceneVisualApproval } from "@/app/actions";
 
@@ -16,7 +17,7 @@ function buttons(node: ReactNode): Array<Record<string, unknown>> {
   if (Array.isArray(node)) return node.flatMap(buttons);
   if (!isValidElement<{ children?: ReactNode }>(node)) return [];
   return [
-    ...(node.type === "button" ? [node.props as Record<string, unknown>] : []),
+    ...(node.type === SubmitButton ? [node.props as Record<string, unknown>] : []),
     ...buttons(node.props.children),
   ];
 }
