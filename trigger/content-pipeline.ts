@@ -2,6 +2,7 @@ import { logger, metadata, queue, schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { getContentProvider } from "../src/lib/content/provider";
+import { NARRATION_VOICE_VERSION } from "../src/lib/content/narration-voice";
 import { lessonTranscript } from "../src/lib/content/lesson";
 import { verifySceneScripture, resolveScripture } from "../src/lib/content/scripture";
 import { GeneratedPackageSchema } from "../src/lib/content/schema";
@@ -127,7 +128,7 @@ export const persistContentPackage = schemaTask({
           status: "PENDING",
           outline: payload.generated.outline,
           socialCopy: payload.generated.socialCopy,
-          metadata: payload.generated.metadata,
+          metadata: { ...payload.generated.metadata, narrationVoiceVersion: NARRATION_VOICE_VERSION },
           validationReport: payload.validationReport as Prisma.InputJsonValue,
           scripts: { create: [
             {

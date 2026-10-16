@@ -17,7 +17,7 @@ async function main() {
   const latestProfile = await prisma.presenterProfile.findFirst({ orderBy: { revision: "desc" } });
   const profile = await prisma.presenterProfile.create({ data: { revision: (latestProfile?.revision ?? 0) + 1, name: "Verification host", portraitAssetId: portrait.id, providerAvatarId: "fixture-avatar", voiceId: "fixture-voice", speechModel: "fixture/speech", speechSpeed: 1, pronunciationDictionary: {}, appearance: "Fixed fictional presenter", status: "APPROVED", approvedAt: new Date() } });
   const presenter = PresenterSnapshotSchema.parse(profile);
-  const explanationText = "Human dignity is received before it is achieved. This changes how we treat one another.\n\nGenesis 1:27 grounds this dignity in God's image. Every person deserves care and respect.\n\nOur daily actions should express this understanding. We can begin with the people nearest to us.";
+  const explanationText = "I understand human dignity as received before it is achieved. This changes how we treat one another.\n\nGenesis 1:27 grounds this dignity in God's image. Every person deserves care and respect.\n\nOur daily actions should express this understanding. We can begin with the people nearest to us.";
   const generated = await new DevelopmentContentProvider().generate({ reference: "Genesis 1", scripture: "", explanation: explanationText });
   const verified = await verifySceneScripture(generated.script.scenes, "WEB");
   const explanation = await prisma.explanation.create({ data: { projectId: project.id, revision: (await prisma.explanation.count({ where: { projectId: project.id } })) + 1, sourceType: "TEXT", originalText: explanationText, editableText: explanationText } });

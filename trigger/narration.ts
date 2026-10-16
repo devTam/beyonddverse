@@ -2,6 +2,7 @@ import { metadata, queue, schemaTask } from "@trigger.dev/sdk";
 import { transcribe } from "ai";
 import { z } from "zod";
 import { assertCurrentScript, narrationSettings, narrationInputHash } from "../src/lib/avatar/production";
+import { assertFirstPersonNarration } from "../src/lib/content/narration-voice";
 import { alignNarration } from "../src/lib/audio/alignment";
 import { getSpeechProvider } from "../src/lib/audio/tts";
 import { uploadAndCreateAsset } from "../src/lib/storage/cloudinary";
@@ -25,6 +26,7 @@ export const generateSceneNarration = schemaTask({
     try {
       const scene = await prisma.scriptScene.findUniqueOrThrow({ where: { id: payload.sceneId }, include: { script: true } });
       if (scene.script.status !== "APPROVED") throw new Error("Narration requires an approved script.");
+      assertFirstPersonNarration(scene.script.body);
       const settings = await getProductionSettings();
       await assertCurrentScript(scene.scriptId);
       const config = narrationSettings(scene.script.presenterSnapshot, settings);

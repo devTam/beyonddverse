@@ -10,6 +10,7 @@ import { requireUser } from "@/lib/auth";
 import { buildProductionProps, productionJson, assertRenderCurrent } from "@/lib/video/props";
 import { activePresenterSnapshot, assertCurrentScript } from "@/lib/avatar/production";
 import { verifySceneScripture } from "@/lib/content/scripture";
+import { NARRATION_VOICE_VERSION, assertFirstPersonNarration } from "@/lib/content/narration-voice";
 import { lessonTranscript, scenesFromText } from "@/lib/content/lesson";
 import { ACTIVE_PRESENTER_KEY, PresenterSnapshotSchema } from "@/lib/presenter-schema";
 import type { presenterPipeline, presenterPortrait } from "../../trigger/presenter";
@@ -165,7 +166,7 @@ export async function regenerateSection(formData: FormData) {
   await requireUser(await headers());
   const input = z.object({ scriptId: z.string().uuid(), field: z.enum(["hook", "body"]) }).parse(Object.fromEntries(formData));
   const script = await prisma.script.findUniqueOrThrow({ where: { id: input.scriptId }, include: { contentPackage: true } });
-  const idempotencyKey = `regenerate:${script.id}:${input.field}`;
+  const idempotencyKey = `regenerate:${script.id}:${input.field}:${NARRATION_VOICE_VERSION}`;
   const existing = await prisma.workflowRun.findUnique({ where: { idempotencyKey } });
   if (existing) redirect(`/studio/genesis-1?workflow=${existing.id}`);
   await assertWorkflowCapacity();
@@ -182,7 +183,7 @@ export async function generateContent(formData: FormData) {
   const explanation = await prisma.explanation.findFirst({ where: { projectId }, orderBy: { revision: "desc" } });
   if (!explanation) throw new Error("Save an explanation before generating content.");
 
-  const baseKey = `content:${projectId}:${explanation.id}`;
+  const baseKey = `content:${projectId}:${explanation.id}:${NARRATION_VOICE_VERSION}`;
   const existing = await prisma.workflowRun.findFirst({ where: { idempotencyKey: { startsWith: baseKey } }, orderBy: { startedAt: "desc" } });
   if (existing && ["QUEUED", "RUNNING", "WAITING", "SUCCEEDED"].includes(existing.status)) {
     redirect(`/studio/genesis-1?workflow=${existing.id}`);
@@ -227,6 +228,7 @@ export async function approveScript(formData: FormData) {
   if (laterRevision) throw new Error("Only the latest script revision can be approved.");
   const report = script.contentPackage.validationReport as { valid?: boolean } | null;
   if (!script.scenes.length) throw new Error("The script needs narrated scenes before approval.");
+  if (script.productionVersion === 2) assertFirstPersonNarration(lessonTranscript(script.scenes));
   const verifiedScenes = await verifySceneScripture(script.scenes, script.scriptureTranslation);
   if (script.productionVersion === 2 && lessonTranscript(script.scenes) !== script.body.trim()) throw new Error("Transcript and scene narration differ. Save a new scene revision before approval.");
   const presenterSnapshot = script.productionVersion === 2 ? await activePresenterSnapshot() : undefined;

@@ -29,7 +29,8 @@ describe("explanation-led teaching", () => {
   });
   it("cues Scripture only when the explanation explicitly references it", async () => {
     const result = await provider.generate({ reference: "Genesis 1", scripture: "Text", explanation: "John 15:5 explains the connection between abiding and fruitfulness. Let us consider what that means for daily life." });
-    expect(result.script.scenes[0].scriptureRef).toBe("John 15:5");
-    expect(result.script.scenes[0].scriptureCue).toBe("John 15:5");
+    const citedScene = result.script.scenes.find((scene) => scene.scriptureRef);
+    expect(citedScene?.scriptureRef).toBe("John 15:5");
+    expect(citedScene?.scriptureCue).toBe("John 15:5");
   });
 });

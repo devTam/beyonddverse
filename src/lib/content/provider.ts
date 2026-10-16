@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { generateText, Output } from "ai";
 import { estimatedDurationMs, lessonTranscript, narrationChunks, scenesFromText } from "./lesson";
+import { FIRST_PERSON_NARRATION_RULES, assertFirstPersonNarration, assertNoCreatorAttribution, firstPersonDevelopmentExplanation } from "./narration-voice";
 import { GeneratedPackageSchema, type GeneratedPackage } from "./schema";
 
 export interface ContentProvider {
@@ -10,12 +11,12 @@ export interface ContentProvider {
 export class DevelopmentContentProvider implements ContentProvider {
   async generate(input: { reference: string; scripture: string; explanation: string }) {
     if (!input.explanation.trim()) throw new Error("Add your explanation before generating a lesson.");
-    const scenes = scenesFromText(input.explanation);
+    const scenes = scenesFromText(firstPersonDevelopmentExplanation(input.explanation));
     const body = lessonTranscript(scenes);
     const title = `${input.reference}: ${input.explanation.trim().split(/\s+/).slice(0, 8).join(" ").replace(/[.!?,;:]+$/, "")}`;
     const excerpts = narrationChunks(input.explanation, 45);
     const shorts = Array.from({ length: 3 }, (_, i) => {
-      const excerpt = excerpts[i % excerpts.length];
+      const excerpt = firstPersonDevelopmentExplanation(excerpts[i % excerpts.length]);
       const parts = excerpt.split(/(?<=[.!?])\s+/);
       return { title: `${input.reference} — reflection ${i + 1}`, hook: parts.length > 1 ? parts[0] : "", body: parts.length > 1 ? parts.slice(1).join(" ") : excerpt };
     });
@@ -42,17 +43,18 @@ export class AiGatewayContentProvider implements ContentProvider {
       output: Output.object({ schema: GeneratedPackageSchema }),
       system: [
         "You are an expert Bible education editor working under strict source controls.",
-        "The creator explanation is the primary interpretation. Preserve its meaning and voice.",
+        "My supplied explanation is the primary teaching material. Preserve my meaning and voice.",
+        FIRST_PERSON_NARRATION_RULES,
         "Never invent a quotation, verse, historical assertion, or theological certainty.",
-        "Clearly distinguish Scripture, creator interpretation, historical context, and uncertain commentary.",
-        "Faithfully polish the entire creator explanation into a spoken lesson. Do not expand it with new claims or force an 8–12 minute duration.",
+        "Distinguish Scripture from my interpretation, historical context, and uncertainty without introducing third-person attribution to me.",
+        "Faithfully polish my entire supplied explanation into a spoken lesson. Do not expand it with new claims or force an 8–12 minute duration.",
         "Scenes are the sole spoken script. Put EVERY teaching paragraph into scenes in order, including any spoken opening and conclusion. body MUST equal all scene narrations joined with two newlines; hook is editorial metadata, not additional unspoken teaching.",
         "Use scenes of roughly 40–90 words. Use presenter for the opening, transitions, and conclusion; use cutaway for supporting illustrations, maps, and timelines.",
         "Use at most one referenced passage per scene; split a scene when it references multiple passages. Only set scriptureRef when the explanation actually references that passage. scriptureCue must be an exact phrase in that scene narration at which to show it. Never generate Scripture excerpts; these are resolved from the stored translation.",
         "Every short must be independently useful and drawn from the explanation.",
-        "Return only content supported by the supplied Scripture and creator explanation.",
+        "Return only content supported by the supplied Scripture and my explanation.",
       ].join(" "),
-      prompt: `REFERENCE\n${input.reference}\n\nSCRIPTURE (authoritative source)\n${input.scripture}\n\nCREATOR EXPLANATION (primary interpretation)\n${input.explanation}`,
+      prompt: `REFERENCE\n${input.reference}\n\nSCRIPTURE (authoritative source)\n${input.scripture}\n\nMY EXPLANATION (speak this as my own first-person teaching)\n${input.explanation}`,
       experimental_telemetry: {
         isEnabled: true,
         functionId: "chapter-content-package",
@@ -62,6 +64,9 @@ export class AiGatewayContentProvider implements ContentProvider {
     });
     await onUsage?.({ provider: "vercel-ai-gateway", model, inputTokens: result.usage.inputTokens ?? 0, outputTokens: result.usage.outputTokens ?? 0 });
     const generated = GeneratedPackageSchema.parse(result.output);
+    assertFirstPersonNarration(lessonTranscript(generated.script.scenes));
+    assertNoCreatorAttribution(generated.script.hook);
+    for (const short of generated.shorts) assertFirstPersonNarration(`${short.hook} ${short.body}`);
     const scenes = generated.script.scenes.map((scene, i, all) => ({ ...scene, presentation: i === 0 || i === all.length - 1 ? "presenter" as const : scene.presentation, durationMs: estimatedDurationMs(scene.narration) }));
     return { ...generated, script: { ...generated.script, scenes, body: lessonTranscript(scenes) } };
   }

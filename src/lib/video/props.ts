@@ -5,6 +5,7 @@ import { createSignedDeliveryUrl } from "../storage/cloudinary";
 import { getProductionSettings } from "../settings";
 import { narrationSettings, narrationInputHash, assertCurrentScript } from "../avatar/production";
 import { PresenterSnapshotSchema } from "../presenter-schema";
+import { assertFirstPersonNarration } from "../content/narration-voice";
 import { lessonTranscript } from "../content/lesson";
 import { scriptureCueTime, type WordTiming } from "../../../packages/video/src/captions";
 import type { VideoInput } from "../../../packages/video/src/types";
@@ -14,6 +15,7 @@ export async function buildProductionProps(scriptId: string): Promise<VideoInput
   const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" }, include: { narrations: { orderBy: { createdAt: "desc" }, take: 1, include: { asset: true } }, assetUsages: { where: { role: "PRIMARY_VISUAL" }, include: { asset: true } } } } } });
   if (script.productionVersion !== 2) throw new Error("This is a legacy production. Regenerate content from your explanation for the presenter format. Existing videos remain available.");
   if (!script.scenes.length || lessonTranscript(script.scenes) !== script.body.trim()) throw new Error("Approved scene narration must match the complete lesson transcript.");
+  assertFirstPersonNarration(script.body);
   const presenter = PresenterSnapshotSchema.parse(script.presenterSnapshot);
   const settings = await getProductionSettings();
   const scenes = await Promise.all(script.scenes.map(async (scene) => {

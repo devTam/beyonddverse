@@ -23,7 +23,7 @@ function narrationInstructions(serialized: string) {
   const pronunciation = entries.length
     ? ` Use these pronunciations exactly: ${entries.map(([word, value]) => `${word}: ${value}`).join("; ")}.`
     : "";
-  return `Deliver this as a warm, compelling Bible teaching voiceover. Sound natural and sincere, with measured pacing, thoughtful pauses, and restrained emphasis. Never sound theatrical, rushed, or like an advertisement.${pronunciation}`;
+  return `Read the supplied approved narration exactly; do not add introductions, attribution, or commentary. Deliver it directly as my own first-person teaching to the audience, with a warm, natural voice. Sound natural and sincere, with measured pacing, thoughtful pauses, and restrained emphasis. Never sound theatrical, rushed, or like an advertisement.${pronunciation}`;
 }
 
 export class AiGatewaySpeechProvider implements SpeechProvider {
