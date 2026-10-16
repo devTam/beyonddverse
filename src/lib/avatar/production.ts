@@ -1,4 +1,4 @@
-import "server-only";
+// Shared by Next.js server actions and the standalone Node render worker.
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { ACTIVE_PRESENTER_KEY, PresenterSnapshotSchema } from "../presenter-schema";
