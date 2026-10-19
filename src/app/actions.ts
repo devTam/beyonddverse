@@ -1,5 +1,6 @@
 "use server";
 
+import { UserInputError } from "@/lib/action-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
@@ -221,31 +222,36 @@ export async function generateContent(formData: FormData) {
 }
 
 export async function approveScript(formData: FormData) {
-  const session = await requireUser(await headers());
-  const scriptId = z.string().uuid().parse(formData.get("scriptId"));
-  const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { contentPackage: true, scenes: true } });
-  const laterRevision = await prisma.script.findFirst({ where: { contentPackageId: script.contentPackageId, kind: script.kind, revision: { gt: script.revision } } });
-  if (laterRevision) throw new Error("Only the latest script revision can be approved.");
-  const report = script.contentPackage.validationReport as { valid?: boolean } | null;
-  if (!script.scenes.length) throw new Error("The script needs narrated scenes before approval.");
-  if (script.productionVersion === 2) assertFirstPersonNarration(lessonTranscript(script.scenes));
-  const verifiedScenes = await verifySceneScripture(script.scenes, script.scriptureTranslation);
-  if (script.productionVersion === 2 && lessonTranscript(script.scenes) !== script.body.trim()) throw new Error("Transcript and scene narration differ. Save a new scene revision before approval.");
-  const presenterSnapshot = script.productionVersion === 2 ? await activePresenterSnapshot() : undefined;
-  if (script.productionVersion === 1 && !report?.valid) throw new Error("Resolve Scripture validation issues before approval.");
-  await prisma.$transaction(async (tx) => {
-    if (script.kind.startsWith("SHORT_") && !script.scenes.length) {
-      const narration = `${script.hook} ${script.body}`;
-      await tx.scriptScene.create({ data: { scriptId: script.id, position: 1, narration, visualType: "typography", visualPrompt: `Premium editorial Bible education visual for “${script.title}”. Warm gold light, dark neutral and deep green palette, generous negative space, no depiction of God, no embedded text.`, durationMs: Math.max(30_000, Math.min(60_000, Math.round(narration.split(/\s+/).length / 2.4 * 1_000))) } });
-    }
-    for (const [index, scene] of verifiedScenes.entries()) await tx.scriptScene.update({ where: { id: script.scenes[index].id }, data: { scriptureExcerpt: scene.scriptureExcerpt } });
-    await tx.script.update({ where: { id: scriptId }, data: { status: "APPROVED", ...(presenterSnapshot ? { presenterSnapshot } : {}) } });
-    await tx.contentPackage.update({ where: { id: script.contentPackageId }, data: { status: "APPROVED" } });
-    await tx.approvalEvent.create({ data: { scriptId, actorId: session.user.id, action: "APPROVED", note: "Approved for media production" } });
-    await tx.chapterProject.update({ where: { id: script.contentPackage.projectId }, data: { status: "MEDIA_PRODUCTION", currentStage: 4 } });
-  });
-  revalidatePath("/");
-  revalidatePath("/studio/genesis-1");
+  try {
+    const session = await requireUser(await headers());
+    const scriptId = z.string().uuid().parse(formData.get("scriptId"));
+    const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { contentPackage: true, scenes: { orderBy: { position: "asc" } } } });
+    const laterRevision = await prisma.script.findFirst({ where: { contentPackageId: script.contentPackageId, kind: script.kind, revision: { gt: script.revision } } });
+    if (laterRevision) throw new UserInputError("Only the latest script revision can be approved.");
+    const report = script.contentPackage.validationReport as { valid?: boolean } | null;
+    if (!script.scenes.length) throw new UserInputError("The script needs narrated scenes before approval.");
+    if (script.productionVersion === 2) assertFirstPersonNarration(lessonTranscript(script.scenes));
+    const verifiedScenes = await verifySceneScripture(script.scenes, script.scriptureTranslation);
+    if (script.productionVersion === 2 && lessonTranscript(script.scenes) !== script.body.trim()) throw new UserInputError("Transcript and scene narration differ. Save a new scene revision before approval.");
+    const presenterSnapshot = script.productionVersion === 2 ? await activePresenterSnapshot() : undefined;
+    if (script.productionVersion === 1 && !report?.valid) throw new UserInputError("Resolve Scripture validation issues before approval.");
+    await prisma.$transaction(async (tx) => {
+      if (script.kind.startsWith("SHORT_") && !script.scenes.length) {
+        const narration = `${script.hook} ${script.body}`;
+        await tx.scriptScene.create({ data: { scriptId: script.id, position: 1, narration, visualType: "typography", visualPrompt: `Premium editorial Bible education visual for “${script.title}”. Warm gold light, dark neutral and deep green palette, generous negative space, no depiction of God, no embedded text.`, durationMs: Math.max(30_000, Math.min(60_000, Math.round(narration.split(/\s+/).length / 2.4 * 1_000))) } });
+      }
+      for (const [index, scene] of verifiedScenes.entries()) await tx.scriptScene.update({ where: { id: script.scenes[index].id }, data: { scriptureExcerpt: scene.scriptureExcerpt, scriptureCue: scene.scriptureCue } });
+      await tx.script.update({ where: { id: scriptId }, data: { status: "APPROVED", ...(presenterSnapshot ? { presenterSnapshot } : {}) } });
+      await tx.contentPackage.update({ where: { id: script.contentPackageId }, data: { status: "APPROVED" } });
+      await tx.approvalEvent.create({ data: { scriptId, actorId: session.user.id, action: "APPROVED", note: "Approved for media production" } });
+      await tx.chapterProject.update({ where: { id: script.contentPackage.projectId }, data: { status: "MEDIA_PRODUCTION", currentStage: 4 } });
+    });
+    revalidatePath("/");
+    revalidatePath("/studio/genesis-1");
+  } catch (error) {
+    if (error instanceof UserInputError) return { error: error.message };
+    throw error;
+  }
 }
 
 export async function saveScriptRevision(formData: FormData) {
@@ -269,7 +275,13 @@ export async function saveScriptRevision(formData: FormData) {
     : current.kind.startsWith("SHORT_") && formData.get("body")
     ? scenesFromText(`${input.hook} ${String(formData.get("body"))}`)
     : sceneInput;
-  await verifySceneScripture<{ narration: string; scriptureRef: string | null; scriptureCue: string | null }>(scenes, current.scriptureTranslation);
+  try {
+    const verified = await verifySceneScripture<{ narration: string; scriptureRef: string | null; scriptureCue: string | null }>(scenes, current.scriptureTranslation);
+    for (const [index, scene] of scenes.entries()) scene.scriptureCue = verified[index].scriptureCue;
+  } catch (error) {
+    if (error instanceof UserInputError) return { error: error.message };
+    throw error;
+  }
   const next = await prisma.$transaction(async (tx) => {
     const created = await tx.script.create({ data: {
       contentPackageId: current.contentPackageId,

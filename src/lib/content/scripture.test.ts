@@ -1,9 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 const find = vi.hoisted(() => vi.fn());
 vi.mock("../prisma", () => ({ prisma: { bibleVerse: { findMany: find } } }));
-import { parseScriptureReference, resolveScripture, verifySceneScripture } from "./scripture";
+import { parseScriptureReference, resolveScripture, verifySceneScripture, resolveNarrationCue } from "./scripture";
 
 describe("verified Scripture cards", () => {
+  it("resolves harmless typography differences to the actual spoken phrase", () => {
+    expect(resolveNarrationCue("We read Genesis 1:1–2 together.", "Genesis 1:1-2")).toBe("Genesis 1:1–2");
+    expect(resolveNarrationCue("I consider God’s  creation.", "god's creation")).toBe("God’s  creation");
+    expect(resolveNarrationCue("I reflect (carefully) on this.", "(carefully)")).toBe("(carefully)");
+  });
+  it("does not guess when a cue is absent, changes wording, or is ambiguous", () => {
+    expect(resolveNarrationCue("We read Genesis 1:1–2.", "unspoken text")).toBeNull();
+    expect(resolveNarrationCue("I teach this.", null)).toBeNull();
+    expect(resolveNarrationCue("We read Genesis 1:1–2 then Genesis 1:1–2.", "Genesis 1:1-2")).toBeNull();
+  });
+  it("returns the normalized cue alongside verified stored Scripture", async () => {
+    find.mockResolvedValue([{ text: "One." }, { text: "Two." }]);
+    const [scene] = await verifySceneScripture([{ narration: "I read Genesis 1:1–2.", scriptureRef: "Genesis 1:1–2", scriptureCue: "Genesis 1:1-2" }], "WEB");
+    expect(scene.scriptureCue).toBe("Genesis 1:1–2");
+    expect(scene.scriptureExcerpt).toBe("One. Two.");
+  });
   it("checks book, chapter, verse range, and selected translation", async () => {
     find.mockResolvedValue([{ text: "Stored verse one." }, { text: "Stored verse two." }]);
     expect(await resolveScripture("John 15:4–5", "WEB")).toBe("Stored verse one. Stored verse two.");

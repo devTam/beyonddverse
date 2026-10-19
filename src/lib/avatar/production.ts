@@ -1,4 +1,5 @@
 // Shared by Next.js server actions and the standalone Node render worker.
+import { UserInputError } from "../action-error";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { ACTIVE_PRESENTER_KEY, PresenterSnapshotSchema } from "../presenter-schema";
@@ -7,7 +8,7 @@ import { contentHash } from "../content/provider";
 export async function activePresenterSnapshot() {
   const setting = await prisma.workspaceSetting.findUnique({ where: { key: ACTIVE_PRESENTER_KEY } });
   const profile = typeof setting?.value === "string" ? await prisma.presenterProfile.findUnique({ where: { id: setting.value } }) : null;
-  if (!profile || profile.status !== "APPROVED") throw new Error("Approve a presenter preview in Settings before production.");
+  if (!profile || profile.status !== "APPROVED") throw new UserInputError("Approve a presenter preview in Settings before production.");
   return PresenterSnapshotSchema.parse(profile);
 }
 
