@@ -2,7 +2,7 @@ import { generateText } from "ai";
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { assertWithinBudget, recordGenerationCost, tokenCostMicros } from "../src/lib/costs";
-import { lessonTranscript, scenesFromText } from "../src/lib/content/lesson";
+import { PASSAGE_TEACHING_RULES, lessonTranscript, scenesFromText } from "../src/lib/content/lesson";
 import { FIRST_PERSON_NARRATION_RULES, assertFirstPersonNarration, assertNoCreatorAttribution } from "../src/lib/content/narration-voice";
 import { prisma } from "../src/lib/prisma";
 import { getProductionSettings } from "../src/lib/settings";
@@ -20,7 +20,7 @@ export const regenerateScriptSection = schemaTask({
       const newest = await prisma.script.findFirst({ where: { contentPackageId: script.contentPackageId, kind: script.kind }, orderBy: { revision: "desc" } });
       if (newest?.id !== script.id) throw new Error("Only the latest script revision can be regenerated.");
       const scripture = script.contentPackage.project.chapter.verses.map((verse) => `${verse.number}. ${verse.text}`).join("\n");
-      const result = await generateText({ model, temperature: 0.2, system: FIRST_PERSON_NARRATION_RULES + " Revise only the requested Bible teaching script section. Preserve every teaching point from my explanation; faithfully polish without adding new claims or targeting a fixed duration. Never invent Scripture quotations, and return only the replacement text.", prompt: `FIELD: ${payload.field}\nREFERENCE: ${script.contentPackage.project.chapter.book.name} ${script.contentPackage.project.chapter.number}\nSCRIPTURE:\n${scripture}\nMY EXPLANATION (first-person teaching):\n${script.contentPackage.explanation.editableText}\nCURRENT TITLE: ${script.title}\nCURRENT HOOK: ${script.hook}\nCURRENT BODY:\n${script.body}` });
+      const result = await generateText({ model, temperature: 0.2, system: PASSAGE_TEACHING_RULES + " " + FIRST_PERSON_NARRATION_RULES + " Revise only the requested Bible teaching script section. Preserve every teaching point from my explanation; faithfully polish without adding new claims or targeting a fixed duration. Never invent Scripture quotations, and return only the replacement text.", prompt: `FIELD: ${payload.field}\nREFERENCE: ${script.contentPackage.project.chapter.book.name} ${script.contentPackage.project.chapter.number}\nSCRIPTURE:\n${scripture}\nMY EXPLANATION (first-person teaching):\n${script.contentPackage.explanation.editableText}\nCURRENT TITLE: ${script.title}\nCURRENT HOOK: ${script.hook}\nCURRENT BODY:\n${script.body}` });
       const text = result.text.trim(); if (payload.field === "hook" && text.length < 10) throw new Error("Regenerated hook was too short."); if (payload.field === "body" && text.length < 200) throw new Error("Regenerated body was too short.");
       assertNoCreatorAttribution(text);
       if (payload.field === "body") assertFirstPersonNarration(text);

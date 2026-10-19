@@ -1,3 +1,5 @@
+export const PASSAGE_TEACHING_RULES = "An explanation may cover one verse, a consecutive range of verses, several passages, or a whole chapter. Organize the lesson around the supplied teaching ideas and paragraph groups, never one explanation or scene per verse. Preserve each supplied verse range as a single passage reference (for example Genesis 1:1–5); do not expand it into separate verse-by-verse explanations. Do not fill gaps, repeat a shared explanation for each verse, or invent commentary for verses the explanation does not discuss. Scene boundaries are for pacing and visuals only, not a requirement for separate interpretations. Keep connected teaching together and split only as needed for media duration or distinct Scripture display cues.";
+
 /** Scene narration is the complete spoken lesson; body is only its derived transcript. */
 export function lessonTranscript(scenes: Array<{ narration: string }>) {
   return scenes.map((scene) => scene.narration.trim()).join("\n\n");
@@ -36,4 +38,10 @@ export function scenesFromText(text: string) {
       durationMs: estimatedDurationMs(narration),
     };
   });
+}
+
+/** A full-transcript edit becomes the canonical scene script without adding a hook or dropping paragraphs. */
+export function scenesFromTranscriptEdit(text: string) {
+  if (!text.trim()) throw new Error("Enter narration before saving the transcript.");
+  return scenesFromText(text);
 }

@@ -1,5 +1,5 @@
 /** Shared by generation, editorial approval, and the standalone render worker. */
-export const NARRATION_VOICE_VERSION = "first-person-v1";
+export const NARRATION_VOICE_VERSION = "first-person-passages-v2";
 
 export const FIRST_PERSON_NARRATION_RULES = [
   "Write spoken teaching in the FIRST PERSON, as if I am personally explaining my own understanding directly to my audience.",

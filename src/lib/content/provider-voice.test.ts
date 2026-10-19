@@ -17,6 +17,8 @@ describe("AI first-person generation", () => {
     const result = await new AiGatewayContentProvider().generate(input);
     const options = generation.mock.calls[0][0];
     expect(options.system).toContain("FIRST PERSON");
+    expect(options.system).toContain("never one explanation or scene per verse");
+    expect(options.system).toContain("Do not fill gaps, repeat a shared explanation for each verse");
     expect(options.system).toContain("Never say 'the creator explains'");
     expect(options.system).toContain("Do not invent personal experiences");
     expect(options.system).toContain("Keep Scripture quotations exact");

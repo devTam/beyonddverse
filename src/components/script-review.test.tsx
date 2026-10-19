@@ -57,6 +57,9 @@ describe("scene review actions", () => {
     expect(html).toContain("Generate / resume presenter");
     expect(html).toContain('src="/presenter"');
     expect(html).toContain("derived from scenes");
+    expect(html).toContain('name="transcript"');
+    expect(html).toContain("Save edited narration");
+    expect(html).toContain("Genesis 1:1–5");
     expect(html).not.toContain('name="body"');
     expect(html).not.toContain("Render video →");
   });

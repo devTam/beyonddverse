@@ -35,6 +35,17 @@ export function ScriptReview({ script, revisions, validation, narrationReady, vi
     {!latest ? <p className="history-note">You are viewing an immutable historical revision. Select the newest revision to edit or approve.</p> : null}
     <div className="validation"><ShieldCheck size={20}/><div><strong>{report?.valid ? "References verified" : "Review references"}</strong><small>{report?.citations?.length ?? 0} citations checked against stored Scripture</small></div></div>
     {script.productionVersion !== 2 ? <p className="history-note">Legacy script format. Generate a new content package from your explanation to create the complete presenter-led lesson. Existing videos remain available.</p> : <p className="settings-copy">Scenes below are the complete spoken lesson. The transcript is assembled from them, so no teaching paragraphs are left out of the video.</p>}
+    {latest ? <details className="lesson-transcript"><summary>Edit and save the full narration</summary>
+      <p className="settings-copy">Edit the AI suggestion in your own words. Paragraphs can explain a range of verses together. Saving a changed transcript rebuilds the scenes and their visual directions, requires renewed approval, and leaves previous productions in history. Use the scene editor below to retain individual visual directions.</p>
+      <ActionForm action={saveScriptRevision} className="script-editor">
+        <input type="hidden" name="scriptId" value={script.id}/>
+        <input type="hidden" name="title" value={script.title}/>
+        <input type="hidden" name="hook" value={script.hook}/>
+        <label>Full spoken narration<textarea name="transcript" defaultValue={script.body} required rows={16}/></label>
+        <SubmitButton className="button button-secondary" pendingLabel="Saving narration…"><Save size={15}/> Save edited narration</SubmitButton>
+      </ActionForm>
+    </details> : null}
+    <p className="settings-copy">You can also edit and save narration scene by scene below. A scene may explain several verses together; Scripture references accept ranges such as Genesis 1:1–5.</p>
     <ActionForm action={saveScriptRevision} className="script-editor">
       <input type="hidden" name="scriptId" value={script.id}/>
       <label>Working title<input name="title" defaultValue={script.title} required minLength={3} disabled={!latest}/></label>
@@ -43,7 +54,7 @@ export function ScriptReview({ script, revisions, validation, narrationReady, vi
       <div className="scene-editor-list">{script.scenes.map((scene) => <fieldset key={scene.id} disabled={!latest}>
         <legend>Scene {String(scene.position).padStart(2, "0")}</legend>
         <label>On-screen presentation<select name={`scene.${scene.id}.presentation`} defaultValue={scene.presentation ?? "cutaway"}><option value="presenter">AI presenter</option><option value="cutaway">Supporting visual / video cutaway</option></select></label>
-        <label>Narration<textarea name={`scene.${scene.id}.narration`} defaultValue={scene.narration} required/></label>
+        <label>Edit suggested narration<textarea name={`scene.${scene.id}.narration`} defaultValue={scene.narration} required/></label>
         {scene.narrationUrl ? <audio controls preload="metadata" src={scene.narrationUrl}>Your browser does not support audio playback.</audio> : null}
         <label>Visual direction<textarea name={`scene.${scene.id}.visualPrompt`} defaultValue={scene.visualPrompt} required/></label>
         {scene.presenterIssue ? <p role="status">Presenter generation: {scene.presenterIssue}</p> : null}
@@ -53,7 +64,7 @@ export function ScriptReview({ script, revisions, validation, narrationReady, vi
         {script.status === "APPROVED" && scene.presentation === "cutaway" && supportingMedia.length ? <div className="action-row"><label>Use approved library media<select name={`scene.${scene.id}.assetId`}>{supportingMedia.map((asset) => <option key={asset.id} value={asset.id}>{asset.label}</option>)}</select></label><SubmitButton className="button button-secondary" formAction={selectSceneVisual.bind(null, scene.id)} formNoValidate>Use selected media</SubmitButton></div> : null}
         {scene.scriptureExcerpt ? <blockquote>{scene.scriptureExcerpt}<small>{scene.scriptureRef}</small></blockquote> : null}
         <label>Scripture display cue (exact narration phrase)<input name={`scene.${scene.id}.scriptureCue`} defaultValue={scene.scriptureCue ?? ""} placeholder="Show the passage when this phrase is spoken"/></label>
-        <div className="scene-fields"><label>Scripture reference<input name={`scene.${scene.id}.scriptureRef`} defaultValue={scene.scriptureRef ?? ""}/></label><label>Duration (ms)<input name={`scene.${scene.id}.durationMs`} type="number" min={1000} max={300000} defaultValue={scene.durationMs} required/></label></div>
+        <div className="scene-fields"><label>Scripture passage or verse range<input name={`scene.${scene.id}.scriptureRef`} defaultValue={scene.scriptureRef ?? ""}/></label><label>Duration (ms)<input name={`scene.${scene.id}.durationMs`} type="number" min={1000} max={300000} defaultValue={scene.durationMs} required/></label></div>
         {script.status === "APPROVED" ? <div className="action-row"><SubmitButton className="button button-ghost" type="submit" formAction={regenerateSceneNarration.bind(null, scene.id)} formNoValidate>Regenerate this narration</SubmitButton><SubmitButton className="button button-ghost" type="submit" formAction={regenerateSceneVisual.bind(null, scene.id)} formNoValidate disabled={!scene.narrationUrl}>Replace this visual</SubmitButton></div> : null}
       </fieldset>)}</div>
       {latest ? <div className="editor-save"><span>Saving creates a new immutable revision; this version is retained.</span><SubmitButton className="button button-secondary"><Save size={15}/> Save as revision {script.revision + 1}</SubmitButton></div> : null}

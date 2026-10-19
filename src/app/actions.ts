@@ -11,7 +11,7 @@ import { buildProductionProps, productionJson, assertRenderCurrent } from "@/lib
 import { activePresenterSnapshot, assertCurrentScript } from "@/lib/avatar/production";
 import { verifySceneScripture } from "@/lib/content/scripture";
 import { NARRATION_VOICE_VERSION, assertFirstPersonNarration } from "@/lib/content/narration-voice";
-import { lessonTranscript, scenesFromText } from "@/lib/content/lesson";
+import { lessonTranscript, scenesFromText, scenesFromTranscriptEdit } from "@/lib/content/lesson";
 import { ACTIVE_PRESENTER_KEY, PresenterSnapshotSchema } from "@/lib/presenter-schema";
 import type { presenterPipeline, presenterPortrait } from "../../trigger/presenter";
 import { contentHash } from "@/lib/content/provider";
@@ -31,7 +31,7 @@ import type { regenerateScriptSection } from "../../trigger/regeneration";
 
 const ExplanationInput = z.object({
   projectId: z.string().uuid(),
-  explanation: z.string().trim().min(80, "Add at least 80 characters so the creator's interpretation remains primary."),
+  explanation: z.string().trim().min(80, "Add at least 80 characters so your explanation remains the teaching source."),
 });
 
 const ScriptRevisionInput = z.object({
@@ -258,12 +258,15 @@ export async function saveScriptRevision(formData: FormData) {
     id: scene.id,
     narration: formData.get(`scene.${scene.id}.narration`) ?? scene.narration,
     visualPrompt: formData.get(`scene.${scene.id}.visualPrompt`) ?? scene.visualPrompt,
-    scriptureRef: String(formData.get(`scene.${scene.id}.scriptureRef`) ?? "").trim() || null,
-    scriptureCue: String(formData.get(`scene.${scene.id}.scriptureCue`) ?? "").trim() || null,
+    scriptureRef: String(formData.get(`scene.${scene.id}.scriptureRef`) ?? scene.scriptureRef ?? "").trim() || null,
+    scriptureCue: String(formData.get(`scene.${scene.id}.scriptureCue`) ?? scene.scriptureCue ?? "").trim() || null,
     presentation: formData.get(`scene.${scene.id}.presentation`) ?? scene.presentation,
     durationMs: Number(formData.get(`scene.${scene.id}.durationMs`) ?? scene.durationMs),
   }));
-  const scenes = current.kind.startsWith("SHORT_") && formData.get("body")
+  const transcript = formData.has("transcript") ? z.string().trim().min(1).max(200_000).parse(formData.get("transcript")) : null;
+  const scenes = transcript !== null
+    ? (transcript === current.body.trim() ? sceneInput : scenesFromTranscriptEdit(transcript))
+    : current.kind.startsWith("SHORT_") && formData.get("body")
     ? scenesFromText(`${input.hook} ${String(formData.get("body"))}`)
     : sceneInput;
   await verifySceneScripture<{ narration: string; scriptureRef: string | null; scriptureCue: string | null }>(scenes, current.scriptureTranslation);

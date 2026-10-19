@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { generateText, Output } from "ai";
-import { estimatedDurationMs, lessonTranscript, narrationChunks, scenesFromText } from "./lesson";
+import { PASSAGE_TEACHING_RULES, estimatedDurationMs, lessonTranscript, narrationChunks, scenesFromText } from "./lesson";
 import { FIRST_PERSON_NARRATION_RULES, assertFirstPersonNarration, assertNoCreatorAttribution, firstPersonDevelopmentExplanation } from "./narration-voice";
 import { GeneratedPackageSchema, type GeneratedPackage } from "./schema";
 
@@ -45,6 +45,7 @@ export class AiGatewayContentProvider implements ContentProvider {
         "You are an expert Bible education editor working under strict source controls.",
         "My supplied explanation is the primary teaching material. Preserve my meaning and voice.",
         FIRST_PERSON_NARRATION_RULES,
+        PASSAGE_TEACHING_RULES,
         "Never invent a quotation, verse, historical assertion, or theological certainty.",
         "Distinguish Scripture from my interpretation, historical context, and uncertainty without introducing third-person attribution to me.",
         "Faithfully polish my entire supplied explanation into a spoken lesson. Do not expand it with new claims or force an 8–12 minute duration.",
