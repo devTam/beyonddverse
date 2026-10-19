@@ -29,8 +29,9 @@ export function resolveNarrationCue(narration: string, cue: string | null) {
 export async function verifySceneScripture<T extends { narration: string; scriptureRef: string | null; scriptureCue: string | null }>(scenes: T[], translation: string) {
   return Promise.all(scenes.map(async (scene, index) => {
     if (!scene.scriptureRef) return { ...scene, scriptureCue: null, scriptureExcerpt: null };
-    const scriptureCue = resolveNarrationCue(scene.narration, scene.scriptureCue);
-    if (!scriptureCue) throw new UserInputError(`Scene ${index + 1} (${scene.scriptureRef}): choose an exact narration phrase in the Scripture display cue field, then save the script revision and approve again.`);
+    const scriptureCue = resolveNarrationCue(scene.narration, scene.scriptureCue)
+      ?? scene.narration.trim().match(/^\S+(?:\s+\S+){0,7}/)?.[0];
+    if (!scriptureCue) throw new UserInputError(`Scene ${index + 1} (${scene.scriptureRef}): add narration to this scene, then save the script revision and approve again.`);
     return { ...scene, scriptureCue, scriptureExcerpt: await resolveScripture(scene.scriptureRef, translation) };
   }));
 }
