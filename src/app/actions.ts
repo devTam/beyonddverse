@@ -9,7 +9,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { buildProductionProps, productionJson, assertRenderCurrent } from "@/lib/video/props";
-import { activePresenterSnapshot, assertCurrentScript } from "@/lib/avatar/production";
+import { activePresenterSnapshot, availablePresenterSnapshot, assertCurrentScript } from "@/lib/avatar/production";
 import { verifySceneScripture } from "@/lib/content/scripture";
 import { NARRATION_VOICE_VERSION, assertFirstPersonNarration } from "@/lib/content/narration-voice";
 import { lessonTranscript, scenesFromText, scenesFromTranscriptEdit } from "@/lib/content/lesson";
@@ -233,7 +233,9 @@ export async function approveScript(formData: FormData) {
     if (script.productionVersion === 2) assertFirstPersonNarration(lessonTranscript(script.scenes));
     const verifiedScenes = await verifySceneScripture(script.scenes, script.scriptureTranslation);
     if (script.productionVersion === 2 && lessonTranscript(script.scenes) !== script.body.trim()) throw new UserInputError("Transcript and scene narration differ. Save a new scene revision before approval.");
-    const presenterSnapshot = script.productionVersion === 2 ? await activePresenterSnapshot() : undefined;
+    const presenterSnapshot = script.productionVersion === 2
+      ? (script.presenterSnapshot ? PresenterSnapshotSchema.parse(script.presenterSnapshot) : await availablePresenterSnapshot())
+      : undefined;
     if (script.productionVersion === 1 && !report?.valid) throw new UserInputError("Resolve Scripture validation issues before approval.");
     await prisma.$transaction(async (tx) => {
       if (script.kind.startsWith("SHORT_") && !script.scenes.length) {
@@ -243,7 +245,7 @@ export async function approveScript(formData: FormData) {
       for (const [index, scene] of verifiedScenes.entries()) await tx.scriptScene.update({ where: { id: script.scenes[index].id }, data: { scriptureExcerpt: scene.scriptureExcerpt, scriptureCue: scene.scriptureCue } });
       await tx.script.update({ where: { id: scriptId }, data: { status: "APPROVED", ...(presenterSnapshot ? { presenterSnapshot } : {}) } });
       await tx.contentPackage.update({ where: { id: script.contentPackageId }, data: { status: "APPROVED" } });
-      await tx.approvalEvent.create({ data: { scriptId, actorId: session.user.id, action: "APPROVED", note: "Approved for media production" } });
+      await tx.approvalEvent.create({ data: { scriptId, actorId: session.user.id, action: "APPROVED", note: "Teaching script approved; presenter setup is checked before narration production" } });
       await tx.chapterProject.update({ where: { id: script.contentPackage.projectId }, data: { status: "MEDIA_PRODUCTION", currentStage: 4 } });
     });
     revalidatePath("/");
@@ -343,6 +345,16 @@ export async function generateNarration(formData: FormData) {
   const script = await prisma.script.findUniqueOrThrow({ where: { id: scriptId }, include: { scenes: { orderBy: { position: "asc" } }, contentPackage: true } });
   await assertCurrentScript(script.id);
   if (!script.scenes.length) throw new Error("The script has no scenes to narrate.");
+  if (script.productionVersion === 2 && !script.presenterSnapshot) {
+    try {
+      const snapshot = await activePresenterSnapshot();
+      await prisma.script.update({ where: { id: script.id }, data: { presenterSnapshot: snapshot } });
+      script.presenterSnapshot = snapshot;
+    } catch (error) {
+      if (error instanceof UserInputError) return { error: error.message };
+      throw error;
+    }
+  }
   const settings = await getProductionSettings();
   const narrationConfigHash = contentHash(JSON.stringify({ presenter: script.presenterSnapshot, model: settings.speechModel, voice: settings.narratorVoice, speed: settings.speechSpeed, dictionary: settings.pronunciationDictionary })).slice(0, 16);
   const baseKey = `narration:${script.id}:${narrationConfigHash}`;

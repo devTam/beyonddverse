@@ -5,11 +5,17 @@ import { prisma } from "../prisma";
 import { ACTIVE_PRESENTER_KEY, PresenterSnapshotSchema } from "../presenter-schema";
 import { contentHash } from "../content/provider";
 
-export async function activePresenterSnapshot() {
+export async function availablePresenterSnapshot() {
   const setting = await prisma.workspaceSetting.findUnique({ where: { key: ACTIVE_PRESENTER_KEY } });
   const profile = typeof setting?.value === "string" ? await prisma.presenterProfile.findUnique({ where: { id: setting.value } }) : null;
-  if (!profile || profile.status !== "APPROVED") throw new UserInputError("Approve a presenter preview in Settings before production.");
+  if (!profile || profile.status !== "APPROVED") return null;
   return PresenterSnapshotSchema.parse(profile);
+}
+
+export async function activePresenterSnapshot() {
+  const profile = await availablePresenterSnapshot();
+  if (!profile) throw new UserInputError("Your script is approved. Approve a presenter preview in Settings before generating presenter narration.");
+  return profile;
 }
 
 export function narrationSettings(snapshot: Prisma.JsonValue | null, fallback: { narratorVoice: string; speechModel: string; speechSpeed: number; pronunciationDictionary: Record<string, string> }) {

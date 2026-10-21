@@ -6,7 +6,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ requireUser: async () => ({ user: { id: "user" } }) }));
 vi.mock("@/lib/prisma", () => ({ prisma: { script: { findUniqueOrThrow: mocks.findUniqueOrThrow, findFirst: mocks.findFirst }, $transaction: mocks.transaction } }));
 vi.mock("@/lib/content/scripture", () => ({ verifySceneScripture: mocks.verify }));
-vi.mock("@/lib/avatar/production", () => ({ activePresenterSnapshot: mocks.presenter }));
+vi.mock("@/lib/avatar/production", () => ({ availablePresenterSnapshot: mocks.presenter }));
 import { approveScript } from "./actions";
 import { UserInputError } from "@/lib/action-error";
 const id = "22a0c5ee-203c-4a44-a3d0-14dbe5791a65";
@@ -25,10 +25,12 @@ describe("approval validation feedback", () => {
     expect(mocks.presenter).not.toHaveBeenCalled();
     expect(mocks.findUniqueOrThrow).toHaveBeenCalledWith(expect.objectContaining({ include: expect.objectContaining({ scenes: { orderBy: { position: "asc" } } }) }));
   });
-  it("returns a missing presenter setup instruction without changing approval", async () => {
-    mocks.presenter.mockRejectedValueOnce(new UserInputError("Approve a presenter preview in Settings before production."));
-    await expect(approveScript(form())).resolves.toEqual({ error: expect.stringContaining("Settings") });
-    expect(mocks.transaction).not.toHaveBeenCalled();
+  it("allows editorial approval without a presenter and does not attach an unapproved profile", async () => {
+    mocks.presenter.mockResolvedValueOnce(null);
+    const update = vi.fn();
+    mocks.transaction.mockImplementationOnce((run) => run({ scriptScene: { update: vi.fn() }, script: { update }, contentPackage: { update: vi.fn() }, approvalEvent: { create: vi.fn() }, chapterProject: { update: vi.fn() } }));
+    await expect(approveScript(form())).resolves.toBeUndefined();
+    expect(update).toHaveBeenCalledWith({ where: { id }, data: { status: "APPROVED" } });
   });
   it("persists the exact normalized cue when approval succeeds", async () => {
     mocks.presenter.mockResolvedValueOnce({ id: "presenter" });
